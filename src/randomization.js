@@ -121,6 +121,7 @@ function generateSessionPlan(childId, allPairs, options = {}) {
 
     plan.push({
       pairID: pair.pairID,
+      category: pair.category,
       imageA: pair.imageA,
       imageB: pair.imageB,
       sideOfA,

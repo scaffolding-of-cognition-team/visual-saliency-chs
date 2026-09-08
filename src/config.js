@@ -39,9 +39,19 @@ const AG_ANIMATIONS = ['spin', 'bounce'];
 // (see README), so no separate calibration frame is needed.
 const AG_CALIBRATION_LENGTH_MS = 3000;
 
-// TODO: confirm against a live Lookit preview. Public baseDir hosting
-// stimuli/img/ and stimuli/mp3/ per EFP's expand-assets convention.
-const STIMULI_BASE_DIR = 'TODO_PUBLIC_BASE_DIR/';
+// Real hosting layout: github.com/scaffolding-of-cognition-team/visual-saliency-chs,
+// stimuli kept in their original MATLAB-mirroring folders (stimuli/Simsom_LWL/
+// {AG_stimuli,Audio,BodyParts,Toys}/), not flattened into an img/ folder.
+// frames.js builds full absolute raw-GitHub URLs from this root rather than
+// relying on baseDir + EFP's img/mp3 auto-subfolder convention, since that
+// convention doesn't match this layout anyway (no bare img/ or mp3/ folder
+// exists) - using full URLs sidesteps the ambiguity entirely instead of
+// fighting it.
+//
+// NOTE: the GitHub repo is named "visual-saliency-chs" (not
+// "visual-salience-chs", the local folder name) - confirm that's the
+// intended spelling before this goes live.
+const STIMULI_BASE_URL = 'https://github.com/scaffolding-of-cognition-team/visual-saliency-chs/raw/main/stimuli/Simsom_LWL/';
 
 module.exports = {
   NUM_TRIALS,
@@ -52,5 +62,5 @@ module.exports = {
   AG_SOUNDS,
   AG_ANIMATIONS,
   AG_CALIBRATION_LENGTH_MS,
-  STIMULI_BASE_DIR,
+  STIMULI_BASE_URL,
 };

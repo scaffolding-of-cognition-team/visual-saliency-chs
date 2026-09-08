@@ -23,33 +23,38 @@
 //   equivalent and is dropped (see config.js).
 //
 // - group + commonFrameProperties: bundles each trial's optional AG + ISI
-//   + test-image into one frame, sharing baseDir/audioTypes/videoTypes/
-//   backgroundColor. This is the same pattern your own reference protocol
-//   uses (test-trial-one..eight), not something invented here.
+//   + test-image into one frame. This is the same pattern your own
+//   reference protocol uses (test-trial-one..eight), not something
+//   invented here.
 //
 // Recording is per-frame (doRecording on each sub-frame), not a
 // session-level start/stop bracket - per your go-ahead, this also means an
 // early Ctrl+X/F1 (or Escape) exit only risks the one trial in progress;
 // every already-finished trial has already uploaded its own clip.
 //
-// TODO verify in Lookit preview: image/audio `src` values below are bare
-// filenames (e.g. "F_eye.png", "orb.png", "bell"), relying on EFP's
-// expand-assets convention to resolve them under baseDir + img/ (images)
-// and baseDir + mp3/ (audio). If stimuli don't load, this is the first
-// thing to check - the fix is a one-line prefix change here.
+// Stimuli are hosted at their real MATLAB-mirroring layout
+// (stimuli/Simsom_LWL/{AG_stimuli,BodyParts,Toys}/...), not a flat img/
+// folder, so every image/audio `src` below is a full absolute URL built
+// from STIMULI_BASE_URL + the real subfolder - this sidesteps EFP's
+// baseDir + img//mp3/ auto-subfolder convention entirely rather than
+// depending on unverified behavior for a layout it doesn't match anyway.
 
-const { TRIAL_IMAGE_SECONDS, AG_CALIBRATION_LENGTH_MS, STIMULI_BASE_DIR } = require('./config');
+const { TRIAL_IMAGE_SECONDS, AG_CALIBRATION_LENGTH_MS, STIMULI_BASE_URL } = require('./config');
 
 function oppositeSide(side) {
   return side === 'left' ? 'right' : 'left';
 }
 
+function stimulusUrl(subfolder, filename) {
+  return `${STIMULI_BASE_URL}${subfolder}/${filename}`;
+}
+
 function buildAttentionGetterFrame(attentionGetter) {
   return {
     kind: 'exp-lookit-calibration',
-    calibrationImage: `${attentionGetter.shape}.png`,
+    calibrationImage: stimulusUrl('AG_stimuli', `${attentionGetter.shape}.png`),
     calibrationImageAnimation: attentionGetter.animation,
-    calibrationAudio: attentionGetter.sound,
+    calibrationAudio: stimulusUrl('AG_stimuli', `${attentionGetter.sound}.mp3`),
     calibrationPositions: [attentionGetter.side, 'center'],
     calibrationLength: AG_CALIBRATION_LENGTH_MS,
     doRecording: true,
@@ -71,8 +76,8 @@ function buildTrialImageFrame(trial) {
   return {
     id: `trial-${trial.pairID}`,
     images: [
-      { id: 'imageA', src: trial.imageA, position: trial.sideOfA },
-      { id: 'imageB', src: trial.imageB, position: sideOfB },
+      { id: 'imageA', src: stimulusUrl(trial.category, trial.imageA), position: trial.sideOfA },
+      { id: 'imageB', src: stimulusUrl(trial.category, trial.imageB), position: sideOfB },
     ],
     durationSeconds: TRIAL_IMAGE_SECONDS,
     autoProceed: true,
@@ -98,11 +103,11 @@ function buildTrialGroup(trial, index) {
     frame: {
       kind: 'group',
       frameList,
+      // No baseDir/audioTypes here - every src above is already a full
+      // absolute URL, so there's nothing for a relative-path convention
+      // to resolve.
       commonFrameProperties: {
         kind: 'exp-lookit-images-audio',
-        baseDir: STIMULI_BASE_DIR,
-        audioTypes: ['mp3'],
-        videoTypes: ['mp4'],
         backgroundColor: 'white',
         autoProceed: true,
         showProgressBar: false,

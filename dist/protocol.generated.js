@@ -43,9 +43,19 @@ const AG_ANIMATIONS = ['spin', 'bounce'];
 // (see README), so no separate calibration frame is needed.
 const AG_CALIBRATION_LENGTH_MS = 3000;
 
-// TODO: confirm against a live Lookit preview. Public baseDir hosting
-// stimuli/img/ and stimuli/mp3/ per EFP's expand-assets convention.
-const STIMULI_BASE_DIR = 'TODO_PUBLIC_BASE_DIR/';
+// Real hosting layout: github.com/scaffolding-of-cognition-team/visual-saliency-chs,
+// stimuli kept in their original MATLAB-mirroring folders (stimuli/Simsom_LWL/
+// {AG_stimuli,Audio,BodyParts,Toys}/), not flattened into an img/ folder.
+// frames.js builds full absolute raw-GitHub URLs from this root rather than
+// relying on baseDir + EFP's img/mp3 auto-subfolder convention, since that
+// convention doesn't match this layout anyway (no bare img/ or mp3/ folder
+// exists) - using full URLs sidesteps the ambiguity entirely instead of
+// fighting it.
+//
+// NOTE: the GitHub repo is named "visual-saliency-chs" (not
+// "visual-salience-chs", the local folder name) - confirm that's the
+// intended spelling before this goes live.
+const STIMULI_BASE_URL = 'https://github.com/scaffolding-of-cognition-team/visual-saliency-chs/raw/main/stimuli/Simsom_LWL/';
 
 // ---- src/pairs.js ----
 // Fixed inventory of the 120 unique image pairs, derived from the same
@@ -232,6 +242,7 @@ function generateSessionPlan(childId, allPairs, options = {}) {
 
     plan.push({
       pairID: pair.pairID,
+      category: pair.category,
       imageA: pair.imageA,
       imageB: pair.imageB,
       sideOfA,
@@ -269,32 +280,37 @@ function generateSessionPlan(childId, allPairs, options = {}) {
 //   equivalent and is dropped (see config.js).
 //
 // - group + commonFrameProperties: bundles each trial's optional AG + ISI
-//   + test-image into one frame, sharing baseDir/audioTypes/videoTypes/
-//   backgroundColor. This is the same pattern your own reference protocol
-//   uses (test-trial-one..eight), not something invented here.
+//   + test-image into one frame. This is the same pattern your own
+//   reference protocol uses (test-trial-one..eight), not something
+//   invented here.
 //
 // Recording is per-frame (doRecording on each sub-frame), not a
 // session-level start/stop bracket - per your go-ahead, this also means an
 // early Ctrl+X/F1 (or Escape) exit only risks the one trial in progress;
 // every already-finished trial has already uploaded its own clip.
 //
-// TODO verify in Lookit preview: image/audio `src` values below are bare
-// filenames (e.g. "F_eye.png", "orb.png", "bell"), relying on EFP's
-// expand-assets convention to resolve them under baseDir + img/ (images)
-// and baseDir + mp3/ (audio). If stimuli don't load, this is the first
-// thing to check - the fix is a one-line prefix change here.
+// Stimuli are hosted at their real MATLAB-mirroring layout
+// (stimuli/Simsom_LWL/{AG_stimuli,BodyParts,Toys}/...), not a flat img/
+// folder, so every image/audio `src` below is a full absolute URL built
+// from STIMULI_BASE_URL + the real subfolder - this sidesteps EFP's
+// baseDir + img//mp3/ auto-subfolder convention entirely rather than
+// depending on unverified behavior for a layout it doesn't match anyway.
 
 
 function oppositeSide(side) {
   return side === 'left' ? 'right' : 'left';
 }
 
+function stimulusUrl(subfolder, filename) {
+  return `${STIMULI_BASE_URL}${subfolder}/${filename}`;
+}
+
 function buildAttentionGetterFrame(attentionGetter) {
   return {
     kind: 'exp-lookit-calibration',
-    calibrationImage: `${attentionGetter.shape}.png`,
+    calibrationImage: stimulusUrl('AG_stimuli', `${attentionGetter.shape}.png`),
     calibrationImageAnimation: attentionGetter.animation,
-    calibrationAudio: attentionGetter.sound,
+    calibrationAudio: stimulusUrl('AG_stimuli', `${attentionGetter.sound}.mp3`),
     calibrationPositions: [attentionGetter.side, 'center'],
     calibrationLength: AG_CALIBRATION_LENGTH_MS,
     doRecording: true,
@@ -316,8 +332,8 @@ function buildTrialImageFrame(trial) {
   return {
     id: `trial-${trial.pairID}`,
     images: [
-      { id: 'imageA', src: trial.imageA, position: trial.sideOfA },
-      { id: 'imageB', src: trial.imageB, position: sideOfB },
+      { id: 'imageA', src: stimulusUrl(trial.category, trial.imageA), position: trial.sideOfA },
+      { id: 'imageB', src: stimulusUrl(trial.category, trial.imageB), position: sideOfB },
     ],
     durationSeconds: TRIAL_IMAGE_SECONDS,
     autoProceed: true,
@@ -343,11 +359,11 @@ function buildTrialGroup(trial, index) {
     frame: {
       kind: 'group',
       frameList,
+      // No baseDir/audioTypes here - every src above is already a full
+      // absolute URL, so there's nothing for a relative-path convention
+      // to resolve.
       commonFrameProperties: {
         kind: 'exp-lookit-images-audio',
-        baseDir: STIMULI_BASE_DIR,
-        audioTypes: ['mp3'],
-        videoTypes: ['mp4'],
         backgroundColor: 'white',
         autoProceed: true,
         showProgressBar: false,
@@ -375,8 +391,7 @@ function buildTrialFrames(plan) {
 
 // ---- src/text.js ----
 // All participant-facing copy, gathered here so it's easy to find and
-// replace. TODO markers are real placeholders - none of this is
-// study-specific content; that's yours to write.
+// replace.
 //
 // The frame *structure* (which Lookit frame kinds, which blocks) is lifted
 // from placepath-behavioral (~/Documents/Code/placepath-behavioral), an
@@ -408,30 +423,61 @@ const ESCAPE_PAUSE_EXIT_SETUP_NOTE = {
 
 const VIDEO_CONFIG = {
   kind: 'exp-video-config',
-  troubleshootingIntro: 'TODO: webcam-troubleshooting contact line (name/role/email), mirroring placepath-behavioral.',
+  troubleshootingIntro:
+    'If you are having trouble getting this experiment set up, please feel free to contact Nicole Sahrling by ' +
+    'email at <b>soc-participate@stanford.edu</b>, and I would be happy to help you out!',
 };
 
-// Structure mirrors placepath-behavioral's video-consent frame exactly
-// (same keys); every value below is a TODO for you to fill in.
 const VIDEO_CONSENT = {
   kind: 'exp-lookit-video-consent',
-  template: 'TODO_consent_template_id',
-  PIName: 'TODO PI name',
-  institution: 'TODO institution',
-  purpose: 'TODO: study purpose, participant-facing.',
-  procedures: 'TODO: what will happen during the session, participant-facing.',
-  risk_statement: 'TODO: risk statement.',
-  voluntary_participation: 'TODO',
-  payment: 'TODO: compensation terms.',
-  datause: 'TODO: data use / Databrary sharing statement.',
+  template: 'consent_006',
+  PIName: 'Dr. Cameron Ellis, PhD',
+  institution: 'Stanford University',
+  PIContact: 'Dr. Cameron Ellis at (650) 308-6130',
+  purpose:
+    'Your child is invited to participate in a research study on baby cognition. The aim of this research is to ' +
+    'investigate how babies see, learn, remember, and pay attention.',
+  procedures:
+    'With your permission, your child’s face and gaze will be video recorded while they are presented with a ' +
+    'variety of stimuli. We are interested in which stimuli your child engages with for longer periods of time. ' +
+    'We will ask you (the parent) to turn away from the screen to avoid influencing your child’s responses.',
+  risk_statement:
+    'The risks associated with this study are minimal. Standard computer displays will be used, involving ' +
+    'child-friendly images and videos. If you or your child experience any discomfort, you may end the session ' +
+    'with no penalty. The data collected will be stored securely, in compliance with Stanford University ' +
+    'standards, minimizing the risk of a confidentiality breach. There are no anticipated risks associated with ' +
+    'participating.',
+  voluntary_participation: '',
+  payment:
+    'As a token of appreciation for your child’s participation, we will send you a digital code to a $10 e-gift ' +
+    'card. To be eligible, your child must fall within the age range, you will need to submit a valid consent ' +
+    'statement, and your child’s face must be visible during the consent process. After you have finished the ' +
+    'study, we will message you with a digital code to the e-gift card within a week. We will still send you an ' +
+    'e-gift card in the event you and your child cannot finish the study or you choose to withdraw at any time. ' +
+    'We cannot and do not guarantee or promise that you and your child will receive any benefits from this study.',
+  datause: '',
   include_databrary: true,
-  additional_video_privacy_statement: 'TODO',
+  additional_video_privacy_statement: '',
   gdpr: false,
-  research_rights_statement: 'TODO: IRB contact / participant-rights statement.',
+  research_rights_statement:
+    'If you have read this form and have decided to allow your child to participate in this project, please ' +
+    'understand your child’s participation is voluntary and as their parent or legal guardian, you have the ' +
+    'right to withdraw consent or discontinue participation at any time without penalty or loss of benefits to ' +
+    'which they are otherwise entitled. The alternative is not to participate. You and your child have the right ' +
+    'to refuse to answer particular questions. Your child’s face will be video recorded so we can track their eye ' +
+    'movements offline for our research. The results of this research study may be presented at scientific or ' +
+    'professional meetings or published in scientific journals. Your child’s individual privacy will be ' +
+    'maintained in all published and written data resulting from the study. \n\n Identifiers will be removed ' +
+    'from identifiable private information and, after such removal, the information could be used for future ' +
+    'research studies or distributed to another investigator for future research studies without additional ' +
+    'informed consent from you.',
   additional_segments: [
     {
       title: 'How long we will store your data',
-      text: 'TODO: data retention statement.',
+      text:
+        'Once the study has concluded, our research team at Stanford University will retain the data collected ' +
+        'from you for 5 years, after which we will delete and remove any data from our servers. Lookit stores ' +
+        'data indefinitely unless you withdraw your recordings at the end of the study.',
     },
   ],
 };
@@ -440,14 +486,55 @@ const WELCOME_INSTRUCTIONS = {
   kind: 'exp-lookit-text',
   showPreviousButton: false,
   blocks: [
-    { emph: true, title: 'Welcome!', text: 'TODO: thank-you / welcome line.' },
-    { text: 'TODO: total time estimate (setup + session + debrief).' },
+    { emph: true, title: 'Welcome!', text: 'Thank you for taking the time to participate in our study!' },
+    {
+      text:
+        'This study will take at most 30 minutes of your time, including set up and debrief. Your child needs to ' +
+        'be present for at most 12 minutes.',
+    },
+    { text: '\n<u>Here are our estimates for how long each part of this study will take:</u>' },
+    {
+      listblocks: [
+        { text: 'Consent (happening now) <b>[1 minute]</b> - your child <i>must</i> be present when you record the consent video' },
+        { text: 'Introduction and setup <b>[5 minutes]</b> - your child does <i>not</i> need to be present' },
+        { text: 'Experiment <b>[6-12 minutes]</b> - your child <i>must</i> be present' },
+        { text: 'Debrief <b>[5 minutes]</b> - your child does <i>not</i> need to be present' },
+      ],
+    },
   ],
 };
 
-// Slot for the study intro video you'll produce later (per your plan to
-// build the Escape/pause-or-exit example into it, mirroring
-// placepath-behavioral's instructions-3). Left empty on purpose.
+// Mirrors placepath-behavioral's instructions-2 (audio check), which
+// placepath itself commented out of its own sequence - included here,
+// right before the study intro video.
+const SETUP_INSTRUCTIONS_1 = {
+  kind: 'exp-lookit-text',
+  showPreviousButton: false,
+  blocks: [
+    {
+      emph: true,
+      title: 'Check audio!',
+      text:
+        "Let's make sure your computer audio is working. Please turn up the volume on your computer so that it " +
+        'is easy to hear sounds while still being at a comfortable level.',
+    },
+    {
+      mediaBlock: {
+        text: "You should hear 'Ready to go!'",
+        isVideo: false,
+        mustPlay: true,
+        warningText: 'Please try playing the sample audio. Make sure you can hear the words clearly!',
+        sources: [
+          { src: 'https://s3.amazonaws.com/lookitcontents/exp-physics-final/audio/ready.mp3', type: 'audio/mp3' },
+          { src: 'https://s3.amazonaws.com/lookitcontents/exp-physics-final/audio/ready.ogg', type: 'audio/ogg' },
+        ],
+      },
+    },
+  ],
+};
+
+// Slot for the study intro video - not recorded yet, so src is a TODO
+// placeholder. Transcript copy is filled in.
 const STUDY_INTRO_VIDEO = {
   kind: 'exp-lookit-instruction-video',
   displayFullscreenOverride: true,
@@ -457,10 +544,40 @@ const STUDY_INTRO_VIDEO = {
       type: 'video/mp4',
     },
   ],
-  introText: 'TODO: intro copy. \n(You can read the transcript to the right if you prefer.)',
+  introText:
+    '<b><u>At this point, your child does not have to be here</u></b>. Feel free to occupy them for the next ' +
+    'few minutes. \n\n Please watch this video for an overview of what will happen during the study. \n(You can ' +
+    'read the transcript to the right if you prefer.)',
   transcriptTitle: 'Video Transcript',
   transcriptBlocks: [
-    { text: 'TODO: what the child will see, in plain terms (no target/lure language - just "two pictures").' },
+    {
+      text:
+        'At the beginning of the experiment, your child will see a video of an exciting rotating shape, like a ' +
+        'star or heart. We call this video the attention getter because we use it to get your child’s attention.',
+    },
+    {
+      text:
+        'Then we will show your child a video, which we call the “experiment video.” When your child is ' +
+        'watching one of these videos, we will measure how long your child wants to look at the video.',
+    },
+    {
+      text:
+        'These experiment videos start by showing a picture of either a two objects or two bodyparts, side by ' +
+        'side. This part is six seconds long. Next, we’ll show another picture of two images side by side for ' +
+        'another six seconds. Throughout the study, your child will also see attention-grabbing colorful shapes ' +
+        'and sounds. This is so we can make sure they are looking at the screen',
+    },
+    {
+      text:
+        'We will repeat around 30 of these experiment videos in total, plus the attention getter trials that ' +
+        'will be interleaved throughout the study.',
+    },
+    {
+      text:
+        'Together, the attention getter video and the repeating experiment videos can take up to 7 minutes. ' +
+        'After 7 minutes, the study will end and the videos will stop automatically.',
+    },
+    { text: 'Please note that while the attention getter has sound, the experiment videos do not have any sound.' },
     ESCAPE_PAUSE_EXIT_TRANSCRIPT_BLOCK,
   ],
   warningText: 'Please watch the video or read the summary before proceeding.',
@@ -472,14 +589,17 @@ const STUDY_INTRO_VIDEO = {
 
 // Generic webcam/room setup guidance - not study-specific, so reusing
 // placepath-behavioral's own hosted setup images directly rather than
-// re-hosting duplicates. TODO: swap to self-hosted copies if you'd rather
-// not depend on another repo's assets long-term.
+// re-hosting duplicates.
 const SETUP_INSTRUCTIONS = {
   kind: 'exp-lookit-instructions',
   displayFullscreenOverride: true,
   blocks: [
     {
-      text: 'TODO: quiet-room guidance.',
+      text:
+        'If possible, complete the study in a quiet room, away from windows, open doorways, toys, pets, ' +
+        'siblings, etc. In other words, we want to minimize interesting things that your child may want to look ' +
+        'at that are not our videos. For example, a home office is better than a busy kitchen. However, we ' +
+        'understand that a quiet environment is not always possible!\n\n',
       image: {
         alt: 'No distractions',
         src: 'https://github.com/scaffolding-of-cognition-team/placepath-behavioral/blob/main/img/distractions.png?raw=true',
@@ -487,18 +607,64 @@ const SETUP_INSTRUCTIONS = {
       },
     },
     {
-      text: 'TODO: center your webcam guidance.',
+      text: '\n\n Please make sure your webcam is centered on the screen (this should be the case for most laptops). \n\n',
       image: {
         alt: 'Center camera',
         src: 'https://github.com/scaffolding-of-cognition-team/placepath-behavioral/blob/main/img/centering.png?raw=true',
       },
     },
     {
-      text: 'TODO: single-monitor guidance.',
+      text:
+        '\n\n If you are using two monitors, please turn one of them off. Make sure that the camera you are ' +
+        'using is attached to the same screen that your child is looking at. \n\n',
       image: {
         alt: 'Turn off monitor',
         src: 'https://github.com/scaffolding-of-cognition-team/placepath-behavioral/blob/main/img/monitors.png?raw=true',
       },
+    },
+  ],
+  nextButtonText: 'Next',
+};
+
+// Mirrors placepath-behavioral's instructions-9, right before
+// final-setup-instructions (instructions-10).
+const FINAL_REMINDERS = {
+  kind: 'exp-lookit-instructions',
+  displayFullscreenOverride: true,
+  restartAfterPause: true,
+  blocks: [
+    {
+      title: 'Some final reminders!',
+      listblocks: [
+        {
+          text:
+            "During the study, you can set your baby up in a high chair and stand or sit behind them. You can " +
+            'also sit in front of the computer with your child on your lap if you think they would prefer that ' +
+            "arrangement. During the study, try to keep your child's body oriented towards the screen so they " +
+            'can look at it if they want to.',
+        },
+        {
+          text:
+            "Make sure that your child's eyes are fully visible, and that your eyes are out of frame, if " +
+            "possible. This way, we'll be able to focus on where your baby is looking!",
+        },
+      ],
+    },
+    { text: '<u>As a reminder:</u>' },
+    {
+      listblocks: [
+        {
+          text:
+            "<b>Don’t worry if your child isn’t looking at the screen the entire time!</b> There's no need to " +
+            "direct your child's attention towards the screen, or interact with them during the study, since " +
+            'we want to know what decisions your child makes on their own.',
+        },
+        {
+          text:
+            "Please avoid peeking over your child's shoulder to check their gaze, narrating the experiment, or " +
+            'pointing at the screen.',
+        },
+      ],
     },
   ],
   nextButtonText: 'Next',
@@ -512,8 +678,18 @@ const FINAL_SETUP_INSTRUCTIONS = {
     {
       title: 'Time to get your child set up!',
       listblocks: [
-        { text: 'TODO: seating guidance.' },
-        { text: 'TODO: laptop placement guidance.' },
+        { text: 'At this point, you can go get your child and set them up in a high chair or on your lap.' },
+        {
+          text:
+            'Please put the laptop or computer close to your child, but far enough away that they cannot reach ' +
+            'forward and touch the keyboard.',
+        },
+        {
+          text:
+            'On the next page, you will be able to check the webcam view. Please make sure that the webcam has ' +
+            "a full view of your child's face and their eyes. <b>Before you start the study, try to make sure " +
+            'that your face is not present in the camera.</b>',
+        },
         ESCAPE_PAUSE_EXIT_SETUP_NOTE,
       ],
     },
@@ -535,7 +711,7 @@ const WEBCAM_DISPLAY_CHECK = {
   blocks: [
     {
       title: "Last check: Does the video look good? Are your child's eyes visible?",
-      listblocks: [{ text: "If so, you can go ahead and start the experiment!" }],
+      listblocks: [{ text: 'If so, you can go ahead and start the experiment!' }],
     },
   ],
 };
@@ -544,8 +720,13 @@ const STUDY_OUTRO = {
   kind: 'exp-lookit-text',
   displayFullscreenOverride: true,
   blocks: [
-    { emph: true, title: 'TODO: thank-you headline.' },
-    { text: 'TODO: wrap-up transition line.' },
+    { emph: true, title: 'You and your child have completed the experiment! Awesome job!' },
+    {
+      text:
+        'To wrap up, we will ask you a few questions that will take at most 5 minutes more. \n\n<b>At this ' +
+        'point, your child has completed the study and does not need to be present.</b> Feel free to occupy ' +
+        'them now before we wrap up.',
+    },
   ],
   showPreviousButton: false,
   nextButtonText: 'Next',
@@ -560,18 +741,57 @@ const FEEDBACK_SURVEY = {
       title: 'Wrap-up Questions',
       properties: {
         email: {
-          title: 'TODO: compensation-email prompt.',
+          title:
+            'Please provide your email so we can send your $10 Tango Gift Card. Your email will be exclusively ' +
+            'utilized for the purpose of delivering your compensation.',
           type: 'string',
           format: 'email',
         },
+        'instructions-feedback': {
+          type: 'string',
+          enum: [
+            '1 - Not clear at all',
+            '2 - Somewhat unclear',
+            '3 - Neither clear nor unclear',
+            '4 - Somewhat clear',
+            '5 - Extremely clear',
+          ],
+        },
+        'video-feedback': {
+          title: 'Did you notice any of the following issues with the study while your child was participating?',
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: ["The videos buffered or didn't play smoothly", 'The videos took a long time to load'],
+          },
+          uniqueItems: true,
+        },
         'miscellaneous-feedback': {
-          title: 'TODO: open feedback prompt.',
+          title: 'Is there any other feedback that you would like to share about your experience with this study?',
           type: 'string',
         },
       },
       required: ['email'],
     },
-    options: { fields: {} },
+    options: {
+      fields: {
+        'instructions-feedback': {
+          type: 'radio',
+          optionLabels: [
+            '1 - Not clear at all',
+            '2 - Somewhat unclear',
+            '3 - Neither clear nor unclear',
+            '4 - Somewhat clear',
+            '5 - Extremely clear',
+          ],
+          hideNone: true,
+        },
+        'video-feedback': {
+          type: 'checkbox',
+          optionLabels: ["The videos buffered or didn't play smoothly", 'The videos took a long time to load'],
+        },
+      },
+    },
   },
   nextButtonText: 'Next',
 };
@@ -583,10 +803,32 @@ const STUDY_DEBRIEF = {
   showDatabraryOptions: true,
   includeWithdrawalExample: true,
   debriefing: {
-    title: 'TODO: debrief title.',
+    title: 'Thank you!',
     emph: true,
-    text: 'TODO: debrief copy (participant-facing study explanation - no target/lure language, this is a looking-preference study).',
-    blocks: [],
+    text: 'Here is some more information about the study you and your child just participated in. Feel free to skip this part if you want.',
+    blocks: [
+      {
+        text:
+          'This was a visual preference study on what kinds of pictures infants find most interesting. They ' +
+          'saw different images of early-learned words paired together, and we want to know which image the ' +
+          'look longer at, and if this preference is stable across children.',
+      },
+      {
+        text:
+          "We are interested in measuring your child's gaze as a way to determine if, on average, infants have " +
+          'a preference for looking at certain images over others.',
+      },
+      {
+        text:
+          'If babies, on average, have similar preferences for some images over others that we showed them ' +
+          "here, then that would suggest that there is something unique about the image that makes it " +
+          "interesting to infants. We measure this 'preference' by recording the amount of time your child " +
+          'looked at one picture over the other on the screen. On average, if the children in this study look ' +
+          'longer at specific images, we infer that there is something about that image or concept that infants ' +
+          'find particularly interesting. We hope that this study will help us better understand the origins of ' +
+          'how children learn words and their visual preferences.',
+      },
+    ],
   },
 };
 
@@ -616,8 +858,10 @@ function generateProtocol(child, pastSessions) {
     'video-config': VIDEO_CONFIG,
     'video-consent': VIDEO_CONSENT,
     'welcome-instructions': WELCOME_INSTRUCTIONS,
+    'setup-instructions-1': SETUP_INSTRUCTIONS_1,
     'study-intro-video': STUDY_INTRO_VIDEO,
     'setup-instructions': SETUP_INSTRUCTIONS,
+    'final-reminders': FINAL_REMINDERS,
     'final-setup-instructions': FINAL_SETUP_INSTRUCTIONS,
     'webcam-display-check': WEBCAM_DISPLAY_CHECK,
     ...trialFrames,
@@ -630,8 +874,10 @@ function generateProtocol(child, pastSessions) {
     'welcome-instructions',
     'video-config',
     'video-consent',
+    'setup-instructions-1',
     'study-intro-video',
     'setup-instructions',
+    'final-reminders',
     'final-setup-instructions',
     'webcam-display-check',
     ...trialSequence,
