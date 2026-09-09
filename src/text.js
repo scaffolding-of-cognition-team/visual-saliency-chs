@@ -143,6 +143,8 @@ const STUDY_INTRO_VIDEO = {
     '<b><u>At this point, your child does not have to be here</u></b>. Feel free to occupy them for the next ' +
     'few minutes. \n\n Please watch this video for an overview of what will happen during the study. \n(You can ' +
     'read the transcript to the right if you prefer.)',
+    
+// TODO: considering hving this be a separate slide
   transcriptTitle: 'Video Transcript',
   transcriptBlocks: [
     {
