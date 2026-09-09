@@ -1,8 +1,5 @@
 // All participant-facing copy, gathered here so it's easy to find and
 // replace.
-//
-//
-
 
 const ESCAPE_PAUSE_EXIT_TRANSCRIPT_BLOCK = {
   text:
