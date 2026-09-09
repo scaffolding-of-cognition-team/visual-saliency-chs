@@ -83,6 +83,7 @@ const VIDEO_CONSENT = {
 
 const WELCOME_INSTRUCTIONS = {
   kind: 'exp-lookit-text',
+  displayFullscreenOverride: true,
   showPreviousButton: false,
   blocks: [
     { emph: true, title: 'Welcome!', text: 'Thank you for taking the time to participate in our study!' },
@@ -105,6 +106,7 @@ const WELCOME_INSTRUCTIONS = {
 
 const SETUP_INSTRUCTIONS_1 = {
   kind: 'exp-lookit-text',
+  displayFullscreenOverride: true,
   showPreviousButton: false,
   blocks: [
     {
@@ -153,19 +155,19 @@ const STUDY_INTRO_VIDEO = {
     },
     {
       text:
-        'Then we will show your child a video, which we call the “experiment video.” When your child is ' +
-        'watching one of these videos, we will measure how long your child wants to look at the video.',
+        'Then we will show your child two images, which we call an “experimental trial.” When your child is ' +
+        'watching one of these trials, we will measure how long your child wants to look at each image on the screen.',
     },
     {
       text:
-        'These experiment videos start by showing a picture of either a two objects or two bodyparts, side by ' +
-        'side. This part is six seconds long. Next, we’ll show another picture of two images side by side for ' +
+        'The experiment will start by showing a picture of an attention getter, follow by either a two objects or two bodyparts, side by ' +
+        'side. Each experiment trial, that is the ones with the images, lasta about six seconds. Next, we’ll show another picture of two images side by side for ' +
         'another six seconds. Throughout the study, your child will also see attention-grabbing colorful shapes ' +
         'and sounds. This is so we can make sure they are looking at the screen',
     },
     {
       text:
-        'We will repeat around 30 of these experiment videos in total, plus the attention getter trials that ' +
+        'We will repeat around 30 of these experiment trials in total, plus the attention getter trials that ' +
         'will be interleaved throughout the study.',
     },
     {
@@ -216,6 +218,10 @@ const SETUP_INSTRUCTIONS = {
         src: 'https://github.com/scaffolding-of-cognition-team/placepath-behavioral/blob/main/img/monitors.png?raw=true',
       },
     },
+    // Plain trailing text block (no image) so the Next button doesn't sit
+    // immediately adjacent to the last image block - that adjacency looked
+    // like the likely cause of the squished/off-center button.
+    { text: '\n' },
   ],
   nextButtonText: 'Next',
 };

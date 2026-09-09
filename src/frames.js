@@ -6,8 +6,11 @@
 //
 // - exp-lookit-images-audio: test trials AND the blank inter-trial
 //   interval (empty images array). Per your decision, images only, no
-//   trial audio, duration driven by durationSeconds. `images[].position`
-//   accepts 'left'/'right' directly - no manual pixel math needed.
+//   trial audio, duration driven by durationSeconds. Positioning uses
+//   images[].left/width/top/height (percentages), NOT the position:
+//   'left'/'right' preset - those presets don't reproduce MATLAB's actual
+//   spacing (see TRIAL_IMAGE_* constants in config.js, derived from
+//   Experiment_Simsom_LWL.m's ImageSize/eccentricity).
 //
 // - exp-lookit-calibration: doubles as the attention-getter. Its whole
 //   documented purpose is "video of the child looking to known locations
@@ -39,7 +42,17 @@
 // baseDir + img//mp3/ auto-subfolder convention entirely rather than
 // depending on unverified behavior for a layout it doesn't match anyway.
 
-const { TRIAL_IMAGE_SECONDS, AG_CALIBRATION_LENGTH_MS, STIMULI_BASE_URL } = require('./config');
+const {
+  TRIAL_IMAGE_SECONDS,
+  AG_CALIBRATION_LENGTH_MS,
+  STIMULI_BASE_URL,
+  BACKGROUND_COLOR,
+  TRIAL_IMAGE_WIDTH_PERCENT,
+  TRIAL_IMAGE_HEIGHT_PERCENT,
+  TRIAL_IMAGE_TOP_PERCENT,
+  TRIAL_IMAGE_LEFT_MARGIN_PERCENT,
+  TRIAL_IMAGE_RIGHT_LEFT_PERCENT,
+} = require('./config');
 
 function oppositeSide(side) {
   return side === 'left' ? 'right' : 'left';
@@ -50,13 +63,20 @@ function stimulusUrl(subfolder, filename) {
 }
 
 function buildAttentionGetterFrame(attentionGetter) {
+  const soundUrl = stimulusUrl('AG_stimuli', `${attentionGetter.sound}.mp3`);
+
   return {
     kind: 'exp-lookit-calibration',
     calibrationImage: stimulusUrl('AG_stimuli', `${attentionGetter.shape}.png`),
     calibrationImageAnimation: attentionGetter.animation,
-    calibrationAudio: stimulusUrl('AG_stimuli', `${attentionGetter.sound}.mp3`),
+    // Array form, one entry per calibrationPositions slot - plays once at
+    // the side, once again after moving to center. Mirrors MATLAB's AG
+    // event sequence (sound -> action -> action -> move -> sound -> action
+    // -> action): a sound at the side, then another after recentering.
+    calibrationAudio: [soundUrl, soundUrl],
     calibrationPositions: [attentionGetter.side, 'center'],
     calibrationLength: AG_CALIBRATION_LENGTH_MS,
+    backgroundColor: BACKGROUND_COLOR,
     doRecording: true,
   };
 }
@@ -72,12 +92,30 @@ function buildIsiFrame(isiSeconds) {
 
 function buildTrialImageFrame(trial) {
   const sideOfB = oppositeSide(trial.sideOfA);
+  // Same left offset for both slots - whichever side each image is on
+  // determines which offset it gets, not a separate "left slot"/"right
+  // slot" pair of constants.
+  const leftOffsetBySide = { left: TRIAL_IMAGE_LEFT_MARGIN_PERCENT, right: TRIAL_IMAGE_RIGHT_LEFT_PERCENT };
 
   return {
     id: `trial-${trial.pairID}`,
     images: [
-      { id: 'imageA', src: stimulusUrl(trial.category, trial.imageA), position: trial.sideOfA },
-      { id: 'imageB', src: stimulusUrl(trial.category, trial.imageB), position: sideOfB },
+      {
+        id: 'imageA',
+        src: stimulusUrl(trial.category, trial.imageA),
+        left: leftOffsetBySide[trial.sideOfA],
+        width: TRIAL_IMAGE_WIDTH_PERCENT,
+        top: TRIAL_IMAGE_TOP_PERCENT,
+        height: TRIAL_IMAGE_HEIGHT_PERCENT,
+      },
+      {
+        id: 'imageB',
+        src: stimulusUrl(trial.category, trial.imageB),
+        left: leftOffsetBySide[sideOfB],
+        width: TRIAL_IMAGE_WIDTH_PERCENT,
+        top: TRIAL_IMAGE_TOP_PERCENT,
+        height: TRIAL_IMAGE_HEIGHT_PERCENT,
+      },
     ],
     durationSeconds: TRIAL_IMAGE_SECONDS,
     autoProceed: true,
@@ -108,7 +146,7 @@ function buildTrialGroup(trial, index) {
       // to resolve.
       commonFrameProperties: {
         kind: 'exp-lookit-images-audio',
-        backgroundColor: 'white',
+        backgroundColor: BACKGROUND_COLOR,
         autoProceed: true,
         showProgressBar: false,
         showCursor: false,
