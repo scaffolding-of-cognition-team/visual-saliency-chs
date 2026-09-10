@@ -128,14 +128,12 @@ const SETUP_INSTRUCTIONS_1 = {
   ],
 };
 
-// Slot for the study intro video - not recorded yet, so src is a TODO
-// placeholder. Transcript copy is filled in.
 const STUDY_INTRO_VIDEO = {
   kind: 'exp-lookit-instruction-video',
   displayFullscreenOverride: true,
   instructionsVideo: [
     {
-      src: 'TODO_STUDY_INTRO_VIDEO_URL',
+      src: 'https://github.com/scaffolding-of-cognition-team/visual-saliency-chs/raw/main/instruction%20videos/chs_instructions_v1.mov',
       type: 'video/mp4',
     },
   ],
@@ -154,15 +152,17 @@ const STUDY_INTRO_VIDEO = {
     },
     {
       text:
-        'Then we will show your child two images, which we call an “experimental trial.” When your child is ' +
-        'watching one of these trials, we will measure how long your child wants to look at each image on the screen.',
+        'Then we will show your child two images, which we call an “experimental trial.” These images consist of naturalistic photos of toys like blocks or cars,' +
+        'and bodyparts, like eyes, or teeth. ' +
+        // `Your child may also hear a label referring to one of the images, such as "Look at the blocks!" ` +
+        'When your child is watching one of these trials, we will measure how long they want to look at each image on the screen.',
     },
     {
       text:
-        'The experiment will start by showing a picture of an attention getter, follow by either a two objects or two bodyparts, side by ' +
-        'side. Each experiment trial, that is the ones with the images, lasta about six seconds. Next, we’ll show another picture of two images side by side for ' +
-        'another six seconds. Throughout the study, your child will also see attention-grabbing colorful shapes ' +
-        'and sounds. This is so we can make sure they are looking at the screen',
+        'The experiment will start by showing a picture of an attention getter, follow by either a two toys or two bodyparts, side by ' +
+        'side. Throughout the study, your child will continue to see see attention-getters with various colorful shapes and sounds. This is so we can make sure ' +
+        'they are looking at the screen throughout the entire experiment. Each experiment trial, that is the ones with the images, lasts about'+
+        'six seconds. Next, we’ll show another trial with two images side by side for another six seconds. '
     },
     {
       text:
@@ -171,10 +171,11 @@ const STUDY_INTRO_VIDEO = {
     },
     {
       text:
-        'Together, the attention getter video and the repeating experiment videos can take up to 7 minutes. ' +
-        'After 7 minutes, the study will end and the videos will stop automatically.',
+        'Together, the attention getter video and the experimental trials can take up to 7 minutes. ' +
+        'After 7 minutes, the study will end and the videos will stop automatically. ' +
+        'You can pause or stop the study at any time by pressing the escape key. ' +
+        'Please note, while the attention getter has sound, the experiment trials do not have any sound.',
     },
-    { text: 'Please note that while the attention getter has sound, the experiment videos do not have any sound.' },
     ESCAPE_PAUSE_EXIT_TRANSCRIPT_BLOCK,
   ],
   warningText: 'Please watch the video or read the summary before proceeding.',
