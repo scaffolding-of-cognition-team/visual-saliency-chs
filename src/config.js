@@ -78,6 +78,12 @@ const TRIAL_IMAGE_RIGHT_LEFT_PERCENT = 100 - TRIAL_IMAGE_MARGIN_PERCENT - TRIAL_
 // intended spelling before this goes live.
 const STIMULI_BASE_URL = 'https://github.com/scaffolding-of-cognition-team/visual-saliency-chs/raw/main/stimuli/';
 
+// Setup-instructions screenshots, self-hosted from this repo's img/ folder
+// (see src/text.js) instead of pulling from the separate
+// placepath-behavioral repo, so this study doesn't depend on another repo's
+// contents staying put.
+const IMG_BASE_URL = 'https://github.com/scaffolding-of-cognition-team/visual-saliency-chs/raw/main/img/';
+
 module.exports = {
   NUM_TRIALS,
   TRIAL_IMAGE_SECONDS,
@@ -88,6 +94,7 @@ module.exports = {
   AG_ANIMATIONS,
   AG_CALIBRATION_LENGTH_MS,
   STIMULI_BASE_URL,
+  IMG_BASE_URL,
   BACKGROUND_COLOR,
   TRIAL_IMAGE_WIDTH_PERCENT,
   TRIAL_IMAGE_HEIGHT_PERCENT,

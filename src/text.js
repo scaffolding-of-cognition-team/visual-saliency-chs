@@ -1,6 +1,8 @@
 // All participant-facing copy, gathered here so it's easy to find and
 // replace.
 
+const { IMG_BASE_URL } = require('./config');
+
 const ESCAPE_PAUSE_EXIT_TRANSCRIPT_BLOCK = {
   text:
     'At any time during the study, you can pause the video or stop the study early by pressing the escape key. ' +
@@ -26,7 +28,7 @@ const VIDEO_CONFIG = {
 
 const VIDEO_CONSENT = {
   kind: 'exp-lookit-video-consent',
-  template: 'consent_006',
+  template: 'consent_005',
   PIName: 'Dr. Cameron Ellis, PhD',
   institution: 'Stanford University',
   PIContact: 'Dr. Cameron Ellis at (650) 308-6130',
@@ -86,15 +88,15 @@ const WELCOME_INSTRUCTIONS = {
     { emph: true, title: 'Welcome!', text: 'Thank you for taking the time to participate in our study!' },
     {
       text:
-        'This study will take at most 30 minutes of your time, including set up and debrief. Your child needs to ' +
-        'be present for at most 12 minutes.',
+        'This study will take at most 20 minutes of your time, including set up and debrief. Your child needs to ' +
+        'be present for at most 8 minutes.',
     },
     { text: '\n<u>Here are our estimates for how long each part of this study will take:</u>' },
     {
       listblocks: [
         { text: 'Consent (happening now) <b>[1 minute]</b> - your child <i>must</i> be present when you record the consent video' },
         { text: 'Introduction and setup <b>[5 minutes]</b> - your child does <i>not</i> need to be present' },
-        { text: 'Experiment <b>[6-12 minutes]</b> - your child <i>must</i> be present' },
+        { text: 'Experiment <b>[5-7 minutes]</b> - your child <i>must</i> be present' },
         { text: 'Debrief <b>[5 minutes]</b> - your child does <i>not</i> need to be present' },
       ],
     },
@@ -198,7 +200,7 @@ const SETUP_INSTRUCTIONS = {
         'understand that a quiet environment is not always possible!\n\n',
       image: {
         alt: 'No distractions',
-        src: 'https://github.com/scaffolding-of-cognition-team/placepath-behavioral/blob/main/img/distractions.png?raw=true',
+        src: `${IMG_BASE_URL}distractions.png`,
         title: 'Setting up the video',
       },
     },
@@ -206,7 +208,7 @@ const SETUP_INSTRUCTIONS = {
       text: '\n\n Please make sure your webcam is centered on the screen (this should be the case for most laptops). \n\n',
       image: {
         alt: 'Center camera',
-        src: 'https://github.com/scaffolding-of-cognition-team/placepath-behavioral/blob/main/img/centering.png?raw=true',
+        src: `${IMG_BASE_URL}centering.png`,
       },
     },
     {
@@ -215,7 +217,7 @@ const SETUP_INSTRUCTIONS = {
         'using is attached to the same screen that your child is looking at. \n\n',
       image: {
         alt: 'Turn off monitor',
-        src: 'https://github.com/scaffolding-of-cognition-team/placepath-behavioral/blob/main/img/monitors.png?raw=true',
+        src: `${IMG_BASE_URL}monitors.png`,
       },
     },
     // Plain trailing text block (no image) so the Next button doesn't sit
