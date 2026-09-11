@@ -66,23 +66,26 @@ function buildAttentionGetterFrame(attentionGetter) {
   const soundUrl = stimulusUrl('AG_stimuli', `${attentionGetter.sound}.mp3`);
 
   return {
+    id: 'attention-getter',
     kind: 'exp-lookit-calibration',
     calibrationImage: stimulusUrl('AG_stimuli', `${attentionGetter.shape}.png`),
     calibrationImageAnimation: attentionGetter.animation,
-    // Array form, one entry per calibrationPositions slot - plays once at
-    // the side, once again after moving to center. Mirrors MATLAB's AG
-    // event sequence (sound -> action -> action -> move -> sound -> action
-    // -> action): a sound at the side, then another after recentering.
-    calibrationAudio: [soundUrl, soundUrl],
+    // Single value (per Lookit's own docs examples), not one entry per
+    // calibrationPositions slot - it plays at every position segment,
+    // same sound each time (side, then again after recentering).
+    calibrationAudio: [{ src: soundUrl, type: 'audio/mp3' }],
     calibrationPositions: [attentionGetter.side, 'center'],
     calibrationLength: AG_CALIBRATION_LENGTH_MS,
     backgroundColor: BACKGROUND_COLOR,
     doRecording: true,
+    showWaitForRecordingMessage: false,
+    showWaitForUploadMessage: false,
   };
 }
 
 function buildIsiFrame(isiSeconds) {
   return {
+    id: 'isi',
     images: [],
     durationSeconds: isiSeconds,
     autoProceed: true,
@@ -121,6 +124,12 @@ function buildTrialImageFrame(trial) {
     autoProceed: true,
     choiceAllowed: false,
     doRecording: true,
+    // Every doRecording:true frame re-installs its own recorder and, by
+    // default, shows a "please wait, starting webcam recording"/upload
+    // interstitial - suppressed here since recording restarts on every
+    // single trial (the ISI frame between trials is doRecording:false).
+    showWaitForRecordingMessage: false,
+    showWaitForUploadMessage: false,
     // pairID/sideOfA are carried in the frame id and image ids so they're
     // recoverable from exported session data without a side channel.
   };
@@ -147,6 +156,11 @@ function buildTrialGroup(trial, index) {
       commonFrameProperties: {
         kind: 'exp-lookit-images-audio',
         backgroundColor: BACKGROUND_COLOR,
+        // pageColor (the actual image-display area, distinct from the
+        // outer backgroundColor margin) defaults to white if unset - that
+        // default is what was showing through as the white trial
+        // background.
+        pageColor: BACKGROUND_COLOR,
         autoProceed: true,
         showProgressBar: false,
         showCursor: false,

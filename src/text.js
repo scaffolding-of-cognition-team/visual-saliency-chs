@@ -406,6 +406,7 @@ const STUDY_DEBRIEF = {
     emph: true,
     text: 'Here is some more information about the study you and your child just participated in. Feel free to skip this part if you want.',
     blocks: [
+      { text: '\n' },
       {
         text:
           'This was a visual preference study on what kinds of pictures infants find most interesting. They ' +

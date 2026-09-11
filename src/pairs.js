@@ -24,11 +24,16 @@ function imageFilename(familiarity, token) {
   return `${familiarity}_${token}.png`;
 }
 
-// Canonical pairID: category_tokenLow-tokenHigh_famOfLowfamOfHigh, tokens
+// Canonical pairID: category-tokenLow-tokenHigh-famOfLowfamOfHigh, tokens
 // sorted alphabetically so the ID is stable regardless of trial-time side
-// assignment. e.g. "bodyparts_eye-teeth_FU" -> imageA = F_eye.png (the "low"
+// assignment. e.g. "bodyparts-eye-teeth-FU" -> imageA = F_eye.png (the "low"
 // token), imageB = U_teeth.png (the "high" token). Side (sideOfA) is decided
 // per trial by randomization.js, not baked into the ID.
+//
+// Dash-only (no underscores): pairID gets spliced directly into Lookit
+// frame ids (frames.js), and Lookit frame ids may only contain letters,
+// numbers, and dashes - an underscore anywhere in one produces a silent
+// console-only validation error with no on-screen message.
 function getAllPairs() {
   const pairs = [];
 
@@ -42,7 +47,7 @@ function getAllPairs() {
 
         for (const famLow of FAMILIARITIES) {
           for (const famHigh of FAMILIARITIES) {
-            const pairID = `${category.toLowerCase()}_${tokenLow}-${tokenHigh}_${famLow}${famHigh}`;
+            const pairID = `${category.toLowerCase()}-${tokenLow}-${tokenHigh}-${famLow}${famHigh}`;
 
             pairs.push({
               pairID,
