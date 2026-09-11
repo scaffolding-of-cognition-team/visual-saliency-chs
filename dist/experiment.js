@@ -605,7 +605,7 @@ const STUDY_INTRO_VIDEO = {
   displayFullscreenOverride: true,
   instructionsVideo: [
     {
-      src: 'https://github.com/scaffolding-of-cognition-team/visual-saliency-chs/raw/main/instruction%20videos/chs_instructions_v1.mov',
+      src: 'https://github.com/scaffolding-of-cognition-team/visual-saliency-chs/raw/main/instruction%20videos/chs_instructions_v1.mp4',
       type: 'video/mp4',
     },
   ],
