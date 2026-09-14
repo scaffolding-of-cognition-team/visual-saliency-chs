@@ -12,7 +12,7 @@ function generateProtocol(child, pastSessions) {
 // file's own top-level bindings surviving into the flattened script.
 
 // How many of the 120 pairs each child sees. Coverage arithmetic (200
-// children x 30 trials, p=0.25 inclusion/pair) lives in the README.
+// children x 30 trials, p=0.25 inclusion/pair).
 const NUM_TRIALS = 30;
 
 // Matches GenerateTrials_Simsom_LWL.m's ImageTime exactly (the MATLAB
@@ -69,18 +69,6 @@ const TRIAL_IMAGE_MARGIN_PERCENT = (7 / 445) * 100;
 const TRIAL_IMAGE_LEFT_MARGIN_PERCENT = TRIAL_IMAGE_MARGIN_PERCENT;
 const TRIAL_IMAGE_RIGHT_LEFT_PERCENT = 100 - TRIAL_IMAGE_MARGIN_PERCENT - TRIAL_IMAGE_WIDTH_PERCENT;
 
-// Real hosting layout: github.com/scaffolding-of-cognition-team/visual-saliency-chs,
-// stimuli kept directly under stimuli/{AG_stimuli,Audio,BodyParts,Toys}/
-// (flattened - no intermediate Simsom_LWL/ folder), not flattened into an
-// img/ folder either. frames.js builds full absolute raw-GitHub URLs from
-// this root rather than relying on baseDir + EFP's img/mp3 auto-subfolder
-// convention, since that convention doesn't match this layout anyway (no
-// bare img/ or mp3/ folder exists) - using full URLs sidesteps the
-// ambiguity entirely instead of fighting it.
-//
-// NOTE: the GitHub repo is named "visual-saliency-chs" (not
-// "visual-salience-chs", the local folder name) - confirm that's the
-// intended spelling before this goes live.
 const STIMULI_BASE_URL = 'https://github.com/scaffolding-of-cognition-team/visual-saliency-chs/raw/main/stimuli/';
 
 // Setup-instructions screenshots, self-hosted from this repo's img/ folder
@@ -166,8 +154,7 @@ function getAllPairs() {
 // given child (re-running generateProtocol for the same child yields the
 // same session), independent across children, with no shared state.
 //
-// Design translation from GenerateTrials_Simsom_LWL.m (see README for the
-// full writeup): the MATLAB script's only real, verified guarantee is
+// Design translation from GenerateTrials_Simsom_LWL.m: the MATLAB script's only real, verified guarantee is
 // "every 240-trial macro-block is a complete, evenly-covered set, shuffled
 // within itself for random adjacency" - it does NOT balance side (L/R) at
 // any scale, just draws it IID per trial. That macro-block completeness
