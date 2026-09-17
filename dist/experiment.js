@@ -750,7 +750,7 @@ const WELCOME_INSTRUCTIONS = {
     { emph: true, title: 'Welcome!', text: 'Thank you for taking the time to participate in our study!' },
     {
       text:
-        'This study will take at most 25 minutes of your time, including set up and debrief. Your child needs to ' +
+        'This study will take at most 21 minutes of your time, including set up and debrief. Your child needs to ' +
         'be present for about 10 minutes.',
     },
     { text: '\n<u>Here are our estimates for how long each part of this study will take:</u>' },
@@ -765,10 +765,17 @@ const WELCOME_INSTRUCTIONS = {
   ],
 };
 
+// NOTE: must be exp-lookit-instructions, NOT exp-lookit-text.
+// `mediaBlock` (the audio-check player) is only implemented in
+// exp-lookit-instructions' template. exp-lookit-text renders each block
+// through exp-text-block, which handles only title / text / emph / image /
+// listblocks - a mediaBlock there is silently ignored, so no audio player
+// appears at all and there is no error to notice.
 const SETUP_INSTRUCTIONS_1 = {
-  kind: 'exp-lookit-text',
+  kind: 'exp-lookit-instructions',
   displayFullscreenOverride: true,
   showPreviousButton: false,
+  nextButtonText: 'Next',
   blocks: [
     {
       emph: true,
@@ -797,7 +804,11 @@ const STUDY_INTRO_VIDEO = {
   displayFullscreenOverride: true,
   instructionsVideo: [
     {
-      src: 'https://github.com/scaffolding-of-cognition-team/visual-saliency-chs/raw/main/instruction%20videos/chs_instructions_v1.mp4',
+      // Must include the .mp4 extension, and must point at the .mp4 - the
+      // source recording is a .mov (QuickTime), which Chrome and Firefox
+      // do not reliably play and which would not match type: 'video/mp4'.
+      // scripts/ has no step for this; see README for the ffmpeg command.
+      src: 'https://github.com/scaffolding-of-cognition-team/visual-saliency-chs/raw/main/instruction%20videos/chs_instructions_v2.mp4',
       type: 'video/mp4',
     },
   ],
