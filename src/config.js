@@ -28,19 +28,39 @@ const ISI_SECONDS_RANGE = [1, 2];
 // guaranteed.
 const AG_PROBABILITY_BY_GAP = [0, 0, 0.25, 0.5, 0.75, 1];
 
-// Self-hosted attention-getter assets (same 5 shapes/5 sounds as
-// AG_stimuli/ in the MATLAB stimuli dir). MATLAB's third motion, 'orbit',
-// has no equivalent in exp-lookit-calibration's calibrationImageAnimation
-// (which only supports 'spin' | 'bounce' | '') and is dropped.
+// Attention-getter factorial, matching Parameters.AG.* in the MATLAB
+// config exactly: 5 shapes x 5 sounds x 3 motions x 2 sides = 150 distinct
+// attention getters. 'orbit' is back - it was dropped when the AG was an
+// exp-lookit-calibration frame, whose calibrationImageAnimation only
+// supports 'spin' | 'bounce' | '', but the AG is now pre-rendered video so
+// all three MATLAB motions are available.
 const AG_SHAPES = ['orb', 'ring', 'star', 'flower', 'heart'];
 const AG_SOUNDS = ['giggle', 'bell', 'powerup', 'squeak', 'xylophone'];
-const AG_ANIMATIONS = ['spin', 'bounce'];
+const AG_MOTIONS = ['orbit', 'rotate', 'scale'];
 
-// Each attention-getter is one exp-lookit-calibration frame that shows the
-// shape at a known random side, then recenters - this doubles as the
-// known-gaze-direction validation reference for iCatcher+/human coding
-// (see README), so no separate calibration frame is needed.
-const AG_CALIBRATION_LENGTH_MS = 3000;
+// Each attention-getter is one exp-lookit-video frame playing a
+// pre-rendered clip (scripts/make_ag_assets.py) that reproduces MATLAB's
+// AG_event_sequence = [1 2 2 3 1 2 2]:
+//
+//   0.00-0.50  sound plays, shape held at the stimulus position
+//   0.50-1.50  motion epoch 1        (at the side)
+//   1.50-2.50  motion epoch 2        (at the side)
+//   2.50-3.50  sigmoid slide to screen centre
+//   3.50-4.00  sound plays again, shape held at centre
+//   4.00-5.00  motion epoch 3        (at centre)
+//   5.00-6.00  motion epoch 4        (at centre)
+//   6.00-6.25  Parameters.AG.Post_wait, blank background
+//
+// The side segment is still the known-gaze-direction validation reference
+// for iCatcher+/human coding (see README) - it now lasts 2.5s at a known
+// eccentricity rather than 3s, and is followed by a known trajectory
+// rather than a hard cut.
+const AG_VIDEO_SECONDS = 6.25;
+
+// Shape/motion/side live in the video filename; the sound is a separate
+// audio track so it stays an independent factor (baking audio into the
+// video would need 150 clips instead of 30 + 5). Both under this folder.
+const AG_VIDEO_SUBFOLDER = 'AG_videos';
 
 // How long exp-lookit-stop-recording will wait for the whole-session video
 // to finish uploading before giving up and moving on. EFP's own default is
@@ -107,8 +127,9 @@ module.exports = {
   AG_PROBABILITY_BY_GAP,
   AG_SHAPES,
   AG_SOUNDS,
-  AG_ANIMATIONS,
-  AG_CALIBRATION_LENGTH_MS,
+  AG_MOTIONS,
+  AG_VIDEO_SECONDS,
+  AG_VIDEO_SUBFOLDER,
   SESSION_MAX_UPLOAD_SECONDS,
   STIMULI_BASE_URL,
   TRIAL_IMAGE_SUBFOLDER,

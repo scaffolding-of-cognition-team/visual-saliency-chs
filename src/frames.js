@@ -71,7 +71,7 @@
 
 const {
   TRIAL_IMAGE_SECONDS,
-  AG_CALIBRATION_LENGTH_MS,
+  AG_VIDEO_SUBFOLDER,
   SESSION_MAX_UPLOAD_SECONDS,
   STIMULI_BASE_URL,
   TRIAL_IMAGE_SUBFOLDER,
@@ -91,20 +91,52 @@ function stimulusUrl(subfolder, filename) {
   return `${STIMULI_BASE_URL}${subfolder}/${filename}`;
 }
 
+// One exp-lookit-video frame per attention getter, playing a pre-rendered
+// clip that reproduces MATLAB's AG_event_sequence (see AG_VIDEO_SECONDS in
+// config.js for the beat-by-beat timeline, and scripts/make_ag_assets.py
+// for the animation maths).
+//
+// exp-lookit-calibration cannot express this: it hardcodes the image to
+// `width: 12%` / `max-height: 300px`, ships only 'spin' and 'bounce'
+// keyframes, and swaps `margin-left` between three fixed positions with no
+// CSS transition, so it hard-cuts rather than slides. MATLAB's AG is the
+// size of a trial image, sits at a trial image's position, and eases to
+// centre on a sigmoid - hence pre-rendered video.
+//
+// Video carries shape x motion x side (30 clips); the sound rides along as
+// a separate `audio` track (5 clips) so it stays an independent factor.
+// Both `video/source` and `audio/source` are in the frame's
+// assetsToExpand lists, so the [{src, type}] form takes absolute URLs -
+// necessary here, since nothing in this study uses baseDir.
 function buildAttentionGetterFrame(attentionGetter) {
-  const soundUrl = stimulusUrl('AG_stimuli', `${attentionGetter.sound}.mp3`);
+  const { shape, motion, side, sound } = attentionGetter;
+  const videoUrl = stimulusUrl(AG_VIDEO_SUBFOLDER, `ag-${shape}-${motion}-${side}.mp4`);
+  const audioUrl = stimulusUrl(AG_VIDEO_SUBFOLDER, `ag-sound-${sound}.mp3`);
 
   return {
-    id: 'attention-getter',
-    kind: 'exp-lookit-calibration',
-    calibrationImage: stimulusUrl('AG_stimuli', `${attentionGetter.shape}.png`),
-    calibrationImageAnimation: attentionGetter.animation,
-    // Single value (per Lookit's own docs examples), not one entry per
-    // calibrationPositions slot - it plays at every position segment,
-    // same sound each time (side, then again after recentering).
-    calibrationAudio: [{ src: soundUrl, type: 'audio/mp3' }],
-    calibrationPositions: [attentionGetter.side, 'center'],
-    calibrationLength: AG_CALIBRATION_LENGTH_MS,
+    // Shape/motion/side/sound are all recoverable from the frame id, the
+    // same way pairID is on trial frames.
+    id: `attention-getter-${shape}-${motion}-${side}-${sound}`,
+    kind: 'exp-lookit-video',
+    video: {
+      source: [{ src: videoUrl, type: 'video/mp4' }],
+      // 'fill' scales the clip up preserving aspect ratio. The clip is
+      // 16:9 on the same rgb(50,50,50) background as the frame, so any
+      // letterboxing on a differently-shaped viewport is invisible.
+      position: 'fill',
+      loop: false,
+    },
+    audio: {
+      source: [{ src: audioUrl, type: 'audio/mp3' }],
+      loop: false,
+    },
+    // Advance on the video finishing once (it is exactly AG_VIDEO_SECONDS
+    // long, Post_wait included). The audio track is the same length and is
+    // deliberately NOT a gate - requireAudioCount 0 - so a slow-loading
+    // sound can never hold the trial block up.
+    requireVideoCount: 1,
+    requireAudioCount: 0,
+    autoProceed: true,
     backgroundColor: BACKGROUND_COLOR,
     // false: the session recorder installed by the start-recording frame
     // is already running. See the RECORDING note at the top of this file.
@@ -197,11 +229,16 @@ function buildTrialImageFrame(trial) {
 function buildTrialGroup(trial, index) {
   const frameList = [];
 
+  // An attention getter REPLACES the ISI rather than preceding it, matching
+  // the MATLAB script: its AG block ends with `pause(Post_AG_wait)` (0.25s,
+  // baked into the tail of every AG clip) and then the trial starts
+  // immediately. Only trials with no AG get the 1-2s blank ISI.
   if (trial.attentionGetter) {
     frameList.push(buildAttentionGetterFrame(trial.attentionGetter));
+  } else {
+    frameList.push(buildIsiFrame(trial.isiSeconds));
   }
 
-  frameList.push(buildIsiFrame(trial.isiSeconds));
   frameList.push(buildTrialImageFrame(trial));
 
   return {

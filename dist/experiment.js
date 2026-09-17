@@ -33,19 +33,39 @@ const ISI_SECONDS_RANGE = [1, 2];
 // guaranteed.
 const AG_PROBABILITY_BY_GAP = [0, 0, 0.25, 0.5, 0.75, 1];
 
-// Self-hosted attention-getter assets (same 5 shapes/5 sounds as
-// AG_stimuli/ in the MATLAB stimuli dir). MATLAB's third motion, 'orbit',
-// has no equivalent in exp-lookit-calibration's calibrationImageAnimation
-// (which only supports 'spin' | 'bounce' | '') and is dropped.
+// Attention-getter factorial, matching Parameters.AG.* in the MATLAB
+// config exactly: 5 shapes x 5 sounds x 3 motions x 2 sides = 150 distinct
+// attention getters. 'orbit' is back - it was dropped when the AG was an
+// exp-lookit-calibration frame, whose calibrationImageAnimation only
+// supports 'spin' | 'bounce' | '', but the AG is now pre-rendered video so
+// all three MATLAB motions are available.
 const AG_SHAPES = ['orb', 'ring', 'star', 'flower', 'heart'];
 const AG_SOUNDS = ['giggle', 'bell', 'powerup', 'squeak', 'xylophone'];
-const AG_ANIMATIONS = ['spin', 'bounce'];
+const AG_MOTIONS = ['orbit', 'rotate', 'scale'];
 
-// Each attention-getter is one exp-lookit-calibration frame that shows the
-// shape at a known random side, then recenters - this doubles as the
-// known-gaze-direction validation reference for iCatcher+/human coding
-// (see README), so no separate calibration frame is needed.
-const AG_CALIBRATION_LENGTH_MS = 3000;
+// Each attention-getter is one exp-lookit-video frame playing a
+// pre-rendered clip (scripts/make_ag_assets.py) that reproduces MATLAB's
+// AG_event_sequence = [1 2 2 3 1 2 2]:
+//
+//   0.00-0.50  sound plays, shape held at the stimulus position
+//   0.50-1.50  motion epoch 1        (at the side)
+//   1.50-2.50  motion epoch 2        (at the side)
+//   2.50-3.50  sigmoid slide to screen centre
+//   3.50-4.00  sound plays again, shape held at centre
+//   4.00-5.00  motion epoch 3        (at centre)
+//   5.00-6.00  motion epoch 4        (at centre)
+//   6.00-6.25  Parameters.AG.Post_wait, blank background
+//
+// The side segment is still the known-gaze-direction validation reference
+// for iCatcher+/human coding (see README) - it now lasts 2.5s at a known
+// eccentricity rather than 3s, and is followed by a known trajectory
+// rather than a hard cut.
+const AG_VIDEO_SECONDS = 6.25;
+
+// Shape/motion/side live in the video filename; the sound is a separate
+// audio track so it stays an independent factor (baking audio into the
+// video would need 150 clips instead of 30 + 5). Both under this folder.
+const AG_VIDEO_SUBFOLDER = 'AG_videos';
 
 // How long exp-lookit-stop-recording will wait for the whole-session video
 // to finish uploading before giving up and moving on. EFP's own default is
@@ -237,18 +257,22 @@ function pickOne(list, rng) {
   return list[Math.floor(rng() * list.length)];
 }
 
+// Mirrors the MATLAB draws one for one: is_AG_right = randi([0,1]), then
+// datasample over shapes, sounds and motions. Same order, same count of
+// draws, so the seeded stream stays interpretable.
 function buildAttentionGetter(rng) {
   return {
     side: rng() < 0.5 ? 'left' : 'right',
     shape: pickOne(AG_SHAPES, rng),
     sound: pickOne(AG_SOUNDS, rng),
-    animation: pickOne(AG_ANIMATIONS, rng),
+    motion: pickOne(AG_MOTIONS, rng),
   };
 }
 
 // Returns an ordered array of trial-unit plans:
 //   { pairID, imageA, imageB, sideOfA, attentionGetter, isiSeconds }
-// attentionGetter is null when no AG precedes that trial.
+// Exactly one of attentionGetter / isiSeconds is non-null per trial: an AG
+// replaces the ISI (MATLAB's Post_wait covers that gap instead).
 function generateSessionPlan(childId, allPairs, options = {}) {
   const numTrials = options.numTrials || NUM_TRIALS;
   const isiRange = options.isiRange || ISI_SECONDS_RANGE;
@@ -299,8 +323,16 @@ function generateSessionPlan(childId, allPairs, options = {}) {
     // durationSeconds (and into the exported data), where 16 significant
     // digits of a float are noise: the browser's own timer resolution is
     // coarser than that.
-    const isiSeconds =
+    //
+    // Drawn unconditionally, then discarded on attention-getter trials,
+    // where the AG's own Post_wait stands in for the ISI (see
+    // frames.js's buildTrialGroup). Drawing first and discarding after
+    // keeps one draw per trial, so the RNG stream - and therefore every
+    // child's pair order, AG schedule and side assignments - is unaffected
+    // by whether a given trial happens to carry an AG.
+    const isiDraw =
       Math.round((isiRange[0] + rng() * (isiRange[1] - isiRange[0])) * 1000) / 1000;
+    const isiSeconds = attentionGetter ? null : isiDraw;
 
     plan.push({
       pairID: pair.pairID,
@@ -396,20 +428,52 @@ function stimulusUrl(subfolder, filename) {
   return `${STIMULI_BASE_URL}${subfolder}/${filename}`;
 }
 
+// One exp-lookit-video frame per attention getter, playing a pre-rendered
+// clip that reproduces MATLAB's AG_event_sequence (see AG_VIDEO_SECONDS in
+// config.js for the beat-by-beat timeline, and scripts/make_ag_assets.py
+// for the animation maths).
+//
+// exp-lookit-calibration cannot express this: it hardcodes the image to
+// `width: 12%` / `max-height: 300px`, ships only 'spin' and 'bounce'
+// keyframes, and swaps `margin-left` between three fixed positions with no
+// CSS transition, so it hard-cuts rather than slides. MATLAB's AG is the
+// size of a trial image, sits at a trial image's position, and eases to
+// centre on a sigmoid - hence pre-rendered video.
+//
+// Video carries shape x motion x side (30 clips); the sound rides along as
+// a separate `audio` track (5 clips) so it stays an independent factor.
+// Both `video/source` and `audio/source` are in the frame's
+// assetsToExpand lists, so the [{src, type}] form takes absolute URLs -
+// necessary here, since nothing in this study uses baseDir.
 function buildAttentionGetterFrame(attentionGetter) {
-  const soundUrl = stimulusUrl('AG_stimuli', `${attentionGetter.sound}.mp3`);
+  const { shape, motion, side, sound } = attentionGetter;
+  const videoUrl = stimulusUrl(AG_VIDEO_SUBFOLDER, `ag-${shape}-${motion}-${side}.mp4`);
+  const audioUrl = stimulusUrl(AG_VIDEO_SUBFOLDER, `ag-sound-${sound}.mp3`);
 
   return {
-    id: 'attention-getter',
-    kind: 'exp-lookit-calibration',
-    calibrationImage: stimulusUrl('AG_stimuli', `${attentionGetter.shape}.png`),
-    calibrationImageAnimation: attentionGetter.animation,
-    // Single value (per Lookit's own docs examples), not one entry per
-    // calibrationPositions slot - it plays at every position segment,
-    // same sound each time (side, then again after recentering).
-    calibrationAudio: [{ src: soundUrl, type: 'audio/mp3' }],
-    calibrationPositions: [attentionGetter.side, 'center'],
-    calibrationLength: AG_CALIBRATION_LENGTH_MS,
+    // Shape/motion/side/sound are all recoverable from the frame id, the
+    // same way pairID is on trial frames.
+    id: `attention-getter-${shape}-${motion}-${side}-${sound}`,
+    kind: 'exp-lookit-video',
+    video: {
+      source: [{ src: videoUrl, type: 'video/mp4' }],
+      // 'fill' scales the clip up preserving aspect ratio. The clip is
+      // 16:9 on the same rgb(50,50,50) background as the frame, so any
+      // letterboxing on a differently-shaped viewport is invisible.
+      position: 'fill',
+      loop: false,
+    },
+    audio: {
+      source: [{ src: audioUrl, type: 'audio/mp3' }],
+      loop: false,
+    },
+    // Advance on the video finishing once (it is exactly AG_VIDEO_SECONDS
+    // long, Post_wait included). The audio track is the same length and is
+    // deliberately NOT a gate - requireAudioCount 0 - so a slow-loading
+    // sound can never hold the trial block up.
+    requireVideoCount: 1,
+    requireAudioCount: 0,
+    autoProceed: true,
     backgroundColor: BACKGROUND_COLOR,
     // false: the session recorder installed by the start-recording frame
     // is already running. See the RECORDING note at the top of this file.
@@ -502,11 +566,16 @@ function buildTrialImageFrame(trial) {
 function buildTrialGroup(trial, index) {
   const frameList = [];
 
+  // An attention getter REPLACES the ISI rather than preceding it, matching
+  // the MATLAB script: its AG block ends with `pause(Post_AG_wait)` (0.25s,
+  // baked into the tail of every AG clip) and then the trial starts
+  // immediately. Only trials with no AG get the 1-2s blank ISI.
   if (trial.attentionGetter) {
     frameList.push(buildAttentionGetterFrame(trial.attentionGetter));
+  } else {
+    frameList.push(buildIsiFrame(trial.isiSeconds));
   }
 
-  frameList.push(buildIsiFrame(trial.isiSeconds));
   frameList.push(buildTrialImageFrame(trial));
 
   return {

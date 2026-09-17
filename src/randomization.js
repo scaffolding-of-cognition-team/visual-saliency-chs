@@ -17,7 +17,7 @@
 // seeded per-child random order. Side assignment mirrors MATLAB exactly:
 // IID Bernoulli(0.5) per trial, no forced split.
 
-const { AG_PROBABILITY_BY_GAP, AG_SHAPES, AG_SOUNDS, AG_ANIMATIONS, ISI_SECONDS_RANGE, NUM_TRIALS } = require('./config');
+const { AG_PROBABILITY_BY_GAP, AG_SHAPES, AG_SOUNDS, AG_MOTIONS, ISI_SECONDS_RANGE, NUM_TRIALS } = require('./config');
 
 // Small deterministic PRNG (mulberry32, seeded via xmur3 string hashing).
 // Plain public-domain utility pattern - no Math.random() anywhere in this
@@ -63,18 +63,22 @@ function pickOne(list, rng) {
   return list[Math.floor(rng() * list.length)];
 }
 
+// Mirrors the MATLAB draws one for one: is_AG_right = randi([0,1]), then
+// datasample over shapes, sounds and motions. Same order, same count of
+// draws, so the seeded stream stays interpretable.
 function buildAttentionGetter(rng) {
   return {
     side: rng() < 0.5 ? 'left' : 'right',
     shape: pickOne(AG_SHAPES, rng),
     sound: pickOne(AG_SOUNDS, rng),
-    animation: pickOne(AG_ANIMATIONS, rng),
+    motion: pickOne(AG_MOTIONS, rng),
   };
 }
 
 // Returns an ordered array of trial-unit plans:
 //   { pairID, imageA, imageB, sideOfA, attentionGetter, isiSeconds }
-// attentionGetter is null when no AG precedes that trial.
+// Exactly one of attentionGetter / isiSeconds is non-null per trial: an AG
+// replaces the ISI (MATLAB's Post_wait covers that gap instead).
 function generateSessionPlan(childId, allPairs, options = {}) {
   const numTrials = options.numTrials || NUM_TRIALS;
   const isiRange = options.isiRange || ISI_SECONDS_RANGE;
@@ -125,8 +129,16 @@ function generateSessionPlan(childId, allPairs, options = {}) {
     // durationSeconds (and into the exported data), where 16 significant
     // digits of a float are noise: the browser's own timer resolution is
     // coarser than that.
-    const isiSeconds =
+    //
+    // Drawn unconditionally, then discarded on attention-getter trials,
+    // where the AG's own Post_wait stands in for the ISI (see
+    // frames.js's buildTrialGroup). Drawing first and discarding after
+    // keeps one draw per trial, so the RNG stream - and therefore every
+    // child's pair order, AG schedule and side assignments - is unaffected
+    // by whether a given trial happens to carry an AG.
+    const isiDraw =
       Math.round((isiRange[0] + rng() * (isiRange[1] - isiRange[0])) * 1000) / 1000;
+    const isiSeconds = attentionGetter ? null : isiDraw;
 
     plan.push({
       pairID: pair.pairID,
