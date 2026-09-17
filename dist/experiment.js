@@ -804,11 +804,15 @@ const STUDY_INTRO_VIDEO = {
   displayFullscreenOverride: true,
   instructionsVideo: [
     {
-      // Must include the .mp4 extension, and must point at the .mp4 - the
-      // source recording is a .mov (QuickTime), which Chrome and Firefox
-      // do not reliably play and which would not match type: 'video/mp4'.
-      // scripts/ has no step for this; see README for the ffmpeg command.
-      src: 'https://github.com/scaffolding-of-cognition-team/visual-saliency-chs/raw/main/instruction%20videos/chs_instructions_v2.mp4',
+      // .m4v is Apple's name for an MP4 container, so type: 'video/mp4' is
+      // correct and every modern browser plays it. The extension must
+      // match the file on disk exactly - a missing or wrong extension here
+      // 404s silently, since the frame just emits <source src type>.
+      //
+      // Do NOT point this at a .mov: Firefox won't play a QuickTime
+      // container, and `type` is what the browser uses to decide whether
+      // to even attempt a source.
+      src: 'https://github.com/scaffolding-of-cognition-team/visual-saliency-chs/raw/main/instruction%20videos/chs_instructions_v2.m4v',
       type: 'video/mp4',
     },
   ],
