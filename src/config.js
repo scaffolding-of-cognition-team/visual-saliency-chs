@@ -6,9 +6,12 @@
 // require()/module.exports lines and concatenates files, relying on each
 // file's own top-level bindings surviving into the flattened script.
 
-// How many of the 120 pairs each child sees. Coverage arithmetic (200
-// children x 30 trials, p=0.25 inclusion/pair) lives in the README.
-const NUM_TRIALS = 30;
+// How many pairs each child sees. This equals the full pair inventory
+// (pairs.js: 15 unordered object-token pairs x 4 familiarity combos = 60),
+// so every child sees every pair exactly once, in their own seeded random
+// order - complete within-child coverage rather than a random subset.
+// Changing this below 60 silently turns it back into a subset design.
+const NUM_TRIALS = 60;
 
 // Matches GenerateTrials_Simsom_LWL.m's ImageTime exactly (the MATLAB
 // window included a spoken label at +0.5s; we've dropped the label but
@@ -39,6 +42,12 @@ const AG_ANIMATIONS = ['spin', 'bounce'];
 // (see README), so no separate calibration frame is needed.
 const AG_CALIBRATION_LENGTH_MS = 3000;
 
+// How long exp-lookit-stop-recording will wait for the whole-session video
+// to finish uploading before giving up and moving on. EFP's own default is
+// 300s; kept explicit here because with session-level recording this single
+// upload carries the entire trial block (see frames.js's RECORDING note).
+const SESSION_MAX_UPLOAD_SECONDS = 300;
+
 // Traced from Setup_Display.m: Window.gray = 50 (0-255 scale) is the
 // background used everywhere in this MATLAB codebase (Window.bcolor =
 // Window.gray). RGB(50,50,50).
@@ -65,8 +74,8 @@ const TRIAL_IMAGE_LEFT_MARGIN_PERCENT = TRIAL_IMAGE_MARGIN_PERCENT;
 const TRIAL_IMAGE_RIGHT_LEFT_PERCENT = 100 - TRIAL_IMAGE_MARGIN_PERCENT - TRIAL_IMAGE_WIDTH_PERCENT;
 
 // Real hosting layout: github.com/scaffolding-of-cognition-team/visual-saliency-chs,
-// stimuli kept directly under stimuli/{AG_stimuli,Audio,BodyParts,Toys}/
-// (flattened - no intermediate Simsom_LWL/ folder), not flattened into an
+// stimuli kept directly under stimuli/{AG_stimuli,Audio,Toys}/ (flattened -
+// no intermediate Simsom_LWL/ folder), not flattened into an
 // img/ folder either. frames.js builds full absolute raw-GitHub URLs from
 // this root rather than relying on baseDir + EFP's img/mp3 auto-subfolder
 // convention, since that convention doesn't match this layout anyway (no
@@ -77,6 +86,13 @@ const TRIAL_IMAGE_RIGHT_LEFT_PERCENT = 100 - TRIAL_IMAGE_MARGIN_PERCENT - TRIAL_
 // "visual-salience-chs", the local folder name) - confirm that's the
 // intended spelling before this goes live.
 const STIMULI_BASE_URL = 'https://github.com/scaffolding-of-cognition-team/visual-saliency-chs/raw/main/stimuli/';
+
+// Subfolder under STIMULI_BASE_URL holding the trial images. Used to be
+// per-pair (pair.category was 'BodyParts' or 'Toys'); with body parts
+// dropped there is one folder for every trial image. The folder itself is
+// still named "Toys" on disk and in the hosted repo - renaming it would
+// break the live URLs, so only this pointer would need to change.
+const TRIAL_IMAGE_SUBFOLDER = 'Toys';
 
 // Setup-instructions screenshots, self-hosted from this repo's img/ folder
 // (see src/text.js) instead of pulling from the separate
@@ -93,7 +109,9 @@ module.exports = {
   AG_SOUNDS,
   AG_ANIMATIONS,
   AG_CALIBRATION_LENGTH_MS,
+  SESSION_MAX_UPLOAD_SECONDS,
   STIMULI_BASE_URL,
+  TRIAL_IMAGE_SUBFOLDER,
   IMG_BASE_URL,
   BACKGROUND_COLOR,
   TRIAL_IMAGE_WIDTH_PERCENT,

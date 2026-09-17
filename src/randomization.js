@@ -9,15 +9,13 @@
 //
 // Design translation from GenerateTrials_Simsom_LWL.m (see README for the
 // full writeup): the MATLAB script's only real, verified guarantee is
-// "every 240-trial macro-block is a complete, evenly-covered set, shuffled
-// within itself for random adjacency" - it does NOT balance side (L/R) at
-// any scale, just draws it IID per trial. That macro-block completeness
-// operates across many trials/sessions, which has no equivalent within one
-// child's 30-trial session; the honest translation is doing the analogous
-// thing at the sample level (200 children x 30-of-120 draws -> ~50
-// observations/pair, see README) rather than forcing artificial per-child
-// balance. Side assignment mirrors MATLAB exactly: IID Bernoulli(0.5) per
-// trial, no forced split.
+// "every macro-block is a complete, evenly-covered set, shuffled within
+// itself for random adjacency" - it does NOT balance side (L/R) at any
+// scale, just draws it IID per trial. Now that the inventory is
+// objects-only (60 pairs) and the session is 60 trials, one child's session
+// IS exactly one such complete macro-block: every pair appears once, in a
+// seeded per-child random order. Side assignment mirrors MATLAB exactly:
+// IID Bernoulli(0.5) per trial, no forced split.
 
 const { AG_PROBABILITY_BY_GAP, AG_SHAPES, AG_SOUNDS, AG_ANIMATIONS, ISI_SECONDS_RANGE, NUM_TRIALS } = require('./config');
 
@@ -87,11 +85,14 @@ function generateSessionPlan(childId, allPairs, options = {}) {
 
   const rng = createRng(childId);
 
-  // Seeded permutation of all 120 pairs, take the first N. Uniform
-  // per-pair inclusion probability (N/120), uniform position within the
-  // session, and random adjacency (no two pairs are fixed neighbors across
-  // children) - the property GenerateTrials_Simsom_LWL.m gets from its own
-  // full-shuffle-within-a-block step.
+  // Seeded permutation of the whole pair inventory, take the first N. With
+  // numTrials === allPairs.length (60 = 60, the intended configuration)
+  // the slice is a no-op and this is complete coverage: every child sees
+  // every pair exactly once, only the order and side assignment differ
+  // between children. That is the full-shuffle-within-a-complete-block step
+  // GenerateTrials_Simsom_LWL.m does, now at the level of a single session.
+  // The slice is kept so a smaller numTrials (e.g. for a pilot) still
+  // yields a uniform random subset rather than throwing.
   const chosenPairs = shuffle(allPairs, rng).slice(0, numTrials);
 
   let trialsSinceLastAG = 0;
@@ -117,11 +118,18 @@ function generateSessionPlan(childId, allPairs, options = {}) {
     }
 
     const sideOfA = rng() < 0.5 ? 'left' : 'right';
-    const isiSeconds = isiRange[0] + rng() * (isiRange[1] - isiRange[0]);
+
+    // Continuous uniform draw on [1, 2) seconds, independently per trial -
+    // matches Experiment_Simsom_LWL.m's Parameters.ISI = [1, 2]. Rounded to
+    // the millisecond because this value goes straight into the frame's
+    // durationSeconds (and into the exported data), where 16 significant
+    // digits of a float are noise: the browser's own timer resolution is
+    // coarser than that.
+    const isiSeconds =
+      Math.round((isiRange[0] + rng() * (isiRange[1] - isiRange[0])) * 1000) / 1000;
 
     plan.push({
       pairID: pair.pairID,
-      category: pair.category,
       imageA: pair.imageA,
       imageB: pair.imageB,
       sideOfA,

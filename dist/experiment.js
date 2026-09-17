@@ -11,9 +11,12 @@ function generateProtocol(child, pastSessions) {
 // require()/module.exports lines and concatenates files, relying on each
 // file's own top-level bindings surviving into the flattened script.
 
-// How many of the 120 pairs each child sees. Coverage arithmetic (200
-// children x 30 trials, p=0.25 inclusion/pair).
-const NUM_TRIALS = 30;
+// How many pairs each child sees. This equals the full pair inventory
+// (pairs.js: 15 unordered object-token pairs x 4 familiarity combos = 60),
+// so every child sees every pair exactly once, in their own seeded random
+// order - complete within-child coverage rather than a random subset.
+// Changing this below 60 silently turns it back into a subset design.
+const NUM_TRIALS = 60;
 
 // Matches GenerateTrials_Simsom_LWL.m's ImageTime exactly (the MATLAB
 // window included a spoken label at +0.5s; we've dropped the label but
@@ -44,6 +47,12 @@ const AG_ANIMATIONS = ['spin', 'bounce'];
 // (see README), so no separate calibration frame is needed.
 const AG_CALIBRATION_LENGTH_MS = 3000;
 
+// How long exp-lookit-stop-recording will wait for the whole-session video
+// to finish uploading before giving up and moving on. EFP's own default is
+// 300s; kept explicit here because with session-level recording this single
+// upload carries the entire trial block (see frames.js's RECORDING note).
+const SESSION_MAX_UPLOAD_SECONDS = 300;
+
 // Traced from Setup_Display.m: Window.gray = 50 (0-255 scale) is the
 // background used everywhere in this MATLAB codebase (Window.bcolor =
 // Window.gray). RGB(50,50,50).
@@ -69,7 +78,26 @@ const TRIAL_IMAGE_MARGIN_PERCENT = (7 / 445) * 100;
 const TRIAL_IMAGE_LEFT_MARGIN_PERCENT = TRIAL_IMAGE_MARGIN_PERCENT;
 const TRIAL_IMAGE_RIGHT_LEFT_PERCENT = 100 - TRIAL_IMAGE_MARGIN_PERCENT - TRIAL_IMAGE_WIDTH_PERCENT;
 
+// Real hosting layout: github.com/scaffolding-of-cognition-team/visual-saliency-chs,
+// stimuli kept directly under stimuli/{AG_stimuli,Audio,Toys}/ (flattened -
+// no intermediate Simsom_LWL/ folder), not flattened into an
+// img/ folder either. frames.js builds full absolute raw-GitHub URLs from
+// this root rather than relying on baseDir + EFP's img/mp3 auto-subfolder
+// convention, since that convention doesn't match this layout anyway (no
+// bare img/ or mp3/ folder exists) - using full URLs sidesteps the
+// ambiguity entirely instead of fighting it.
+//
+// NOTE: the GitHub repo is named "visual-saliency-chs" (not
+// "visual-salience-chs", the local folder name) - confirm that's the
+// intended spelling before this goes live.
 const STIMULI_BASE_URL = 'https://github.com/scaffolding-of-cognition-team/visual-saliency-chs/raw/main/stimuli/';
+
+// Subfolder under STIMULI_BASE_URL holding the trial images. Used to be
+// per-pair (pair.category was 'BodyParts' or 'Toys'); with body parts
+// dropped there is one folder for every trial image. The folder itself is
+// still named "Toys" on disk and in the hosted repo - renaming it would
+// break the live URLs, so only this pointer would need to change.
+const TRIAL_IMAGE_SUBFOLDER = 'Toys';
 
 // Setup-instructions screenshots, self-hosted from this repo's img/ folder
 // (see src/text.js) instead of pulling from the separate
@@ -78,25 +106,27 @@ const STIMULI_BASE_URL = 'https://github.com/scaffolding-of-cognition-team/visua
 const IMG_BASE_URL = 'https://github.com/scaffolding-of-cognition-team/visual-saliency-chs/raw/main/img/';
 
 // ---- src/pairs.js ----
-// Fixed inventory of the 120 unique image pairs, derived from the same
-// within-category factorial as GenerateTrials_Simsom_LWL.m:
+// Fixed inventory of the 60 unique image pairs, derived from the same
+// within-category factorial as GenerateTrials_Simsom_LWL.m, restricted to
+// the objects category (the body-part category has been dropped from this
+// study entirely):
 //
-//   6 tokens/category, all unordered token pairs (6 choose 2 = 15/category),
-//   x2 categories = 30 unordered token pairs
+//   6 object tokens, all unordered token pairs (6 choose 2 = 15),
 //   x4 familiarity combinations per token pair (FF, UU, and the two mixed
-//     F/U assignments, which are genuinely different images) = 120 pairs.
+//     F/U assignments, which are genuinely different images) = 60 pairs.
 //
-// The MATLAB code gets to 120 via a different route: it builds 60 *ordered*
-// (target, lure) token pairs x4 familiarity combos = 240 raw target/lure
-// slots, which double-count each unordered image pair once per direction
-// (target=A/lure=B and target=B/lure=A land on the same two images). Once
-// the spoken label - and the target/lure role it created - is dropped, only
-// the unordered pair survives, so 240/2 = 120. Same inventory, no label.
+// The MATLAB code gets to its own inventory via a different route: it builds
+// *ordered* (target, lure) token pairs x4 familiarity combos, which
+// double-count each unordered image pair once per direction (target=A/lure=B
+// and target=B/lure=A land on the same two images). Once the spoken label -
+// and the target/lure role it created - is dropped, only the unordered pair
+// survives, so the objects half of MATLAB's 240 raw slots (120) halves to
+// these 60. Same inventory, no label.
+//
+// 60 pairs is exactly NUM_TRIALS (config.js), so every child sees the
+// complete inventory once - see randomization.js.
 
-const CATEGORIES = {
-  BodyParts: ['nose', 'teeth', 'eye', 'hand', 'shin', 'knee'],
-  Toys: ['car', 'ball', 'blocks', 'keys', 'fridge', 'drawer'],
-};
+const TOKENS = ['car', 'ball', 'blocks', 'keys', 'fridge', 'drawer'];
 
 const FAMILIARITIES = ['F', 'U'];
 
@@ -104,11 +134,15 @@ function imageFilename(familiarity, token) {
   return `${familiarity}_${token}.png`;
 }
 
-// Canonical pairID: category-tokenLow-tokenHigh-famOfLowfamOfHigh, tokens
-// sorted alphabetically so the ID is stable regardless of trial-time side
-// assignment. e.g. "bodyparts-eye-teeth-FU" -> imageA = F_eye.png (the "low"
-// token), imageB = U_teeth.png (the "high" token). Side (sideOfA) is decided
-// per trial by randomization.js, not baked into the ID.
+// Canonical pairID: tokenLow-tokenHigh-famOfLowfamOfHigh, tokens sorted
+// alphabetically so the ID is stable regardless of trial-time side
+// assignment. e.g. "ball-blocks-FU" -> imageA = F_ball.png (the "low"
+// token), imageB = U_blocks.png (the "high" token). Side (sideOfA) is
+// decided per trial by randomization.js, not baked into the ID.
+//
+// There is no longer a category segment in the ID (it used to read
+// "toys-ball-blocks-FU"): with body parts gone there is only one category,
+// so the segment carried no information.
 //
 // Dash-only (no underscores): pairID gets spliced directly into Lookit
 // frame ids (frames.js), and Lookit frame ids may only contain letters,
@@ -116,26 +150,20 @@ function imageFilename(familiarity, token) {
 // console-only validation error with no on-screen message.
 function getAllPairs() {
   const pairs = [];
+  const sortedTokens = [...TOKENS].sort();
 
-  for (const [category, tokens] of Object.entries(CATEGORIES)) {
-    const sortedTokens = [...tokens].sort();
+  for (let i = 0; i < sortedTokens.length; i++) {
+    for (let j = i + 1; j < sortedTokens.length; j++) {
+      const tokenLow = sortedTokens[i];
+      const tokenHigh = sortedTokens[j];
 
-    for (let i = 0; i < sortedTokens.length; i++) {
-      for (let j = i + 1; j < sortedTokens.length; j++) {
-        const tokenLow = sortedTokens[i];
-        const tokenHigh = sortedTokens[j];
-
-        for (const famLow of FAMILIARITIES) {
-          for (const famHigh of FAMILIARITIES) {
-            const pairID = `${category.toLowerCase()}-${tokenLow}-${tokenHigh}-${famLow}${famHigh}`;
-
-            pairs.push({
-              pairID,
-              category,
-              imageA: imageFilename(famLow, tokenLow),
-              imageB: imageFilename(famHigh, tokenHigh),
-            });
-          }
+      for (const famLow of FAMILIARITIES) {
+        for (const famHigh of FAMILIARITIES) {
+          pairs.push({
+            pairID: `${tokenLow}-${tokenHigh}-${famLow}${famHigh}`,
+            imageA: imageFilename(famLow, tokenLow),
+            imageB: imageFilename(famHigh, tokenHigh),
+          });
         }
       }
     }
@@ -154,16 +182,15 @@ function getAllPairs() {
 // given child (re-running generateProtocol for the same child yields the
 // same session), independent across children, with no shared state.
 //
-// Design translation from GenerateTrials_Simsom_LWL.m: the MATLAB script's only real, verified guarantee is
-// "every 240-trial macro-block is a complete, evenly-covered set, shuffled
-// within itself for random adjacency" - it does NOT balance side (L/R) at
-// any scale, just draws it IID per trial. That macro-block completeness
-// operates across many trials/sessions, which has no equivalent within one
-// child's 30-trial session; the honest translation is doing the analogous
-// thing at the sample level (200 children x 30-of-120 draws -> ~50
-// observations/pair, see README) rather than forcing artificial per-child
-// balance. Side assignment mirrors MATLAB exactly: IID Bernoulli(0.5) per
-// trial, no forced split.
+// Design translation from GenerateTrials_Simsom_LWL.m (see README for the
+// full writeup): the MATLAB script's only real, verified guarantee is
+// "every macro-block is a complete, evenly-covered set, shuffled within
+// itself for random adjacency" - it does NOT balance side (L/R) at any
+// scale, just draws it IID per trial. Now that the inventory is
+// objects-only (60 pairs) and the session is 60 trials, one child's session
+// IS exactly one such complete macro-block: every pair appears once, in a
+// seeded per-child random order. Side assignment mirrors MATLAB exactly:
+// IID Bernoulli(0.5) per trial, no forced split.
 
 
 // Small deterministic PRNG (mulberry32, seeded via xmur3 string hashing).
@@ -232,11 +259,14 @@ function generateSessionPlan(childId, allPairs, options = {}) {
 
   const rng = createRng(childId);
 
-  // Seeded permutation of all 120 pairs, take the first N. Uniform
-  // per-pair inclusion probability (N/120), uniform position within the
-  // session, and random adjacency (no two pairs are fixed neighbors across
-  // children) - the property GenerateTrials_Simsom_LWL.m gets from its own
-  // full-shuffle-within-a-block step.
+  // Seeded permutation of the whole pair inventory, take the first N. With
+  // numTrials === allPairs.length (60 = 60, the intended configuration)
+  // the slice is a no-op and this is complete coverage: every child sees
+  // every pair exactly once, only the order and side assignment differ
+  // between children. That is the full-shuffle-within-a-complete-block step
+  // GenerateTrials_Simsom_LWL.m does, now at the level of a single session.
+  // The slice is kept so a smaller numTrials (e.g. for a pilot) still
+  // yields a uniform random subset rather than throwing.
   const chosenPairs = shuffle(allPairs, rng).slice(0, numTrials);
 
   let trialsSinceLastAG = 0;
@@ -262,11 +292,18 @@ function generateSessionPlan(childId, allPairs, options = {}) {
     }
 
     const sideOfA = rng() < 0.5 ? 'left' : 'right';
-    const isiSeconds = isiRange[0] + rng() * (isiRange[1] - isiRange[0]);
+
+    // Continuous uniform draw on [1, 2) seconds, independently per trial -
+    // matches Experiment_Simsom_LWL.m's Parameters.ISI = [1, 2]. Rounded to
+    // the millisecond because this value goes straight into the frame's
+    // durationSeconds (and into the exported data), where 16 significant
+    // digits of a float are noise: the browser's own timer resolution is
+    // coarser than that.
+    const isiSeconds =
+      Math.round((isiRange[0] + rng() * (isiRange[1] - isiRange[0])) * 1000) / 1000;
 
     plan.push({
       pairID: pair.pairID,
-      category: pair.category,
       imageA: pair.imageA,
       imageB: pair.imageB,
       sideOfA,
@@ -311,14 +348,41 @@ function generateSessionPlan(childId, allPairs, options = {}) {
 //   reference protocol uses (test-trial-one..eight), not something
 //   invented here.
 //
-// Recording is per-frame (doRecording on each sub-frame), not a
-// session-level start/stop bracket - per your go-ahead, this also means an
-// early Ctrl+X/F1 (or Escape) exit only risks the one trial in progress;
-// every already-finished trial has already uploaded its own clip.
+// RECORDING: one session-level recorder spanning the whole trial block
+// (exp-lookit-start-recording before trial 1, exp-lookit-stop-recording
+// after trial 60), NOT the per-frame doRecording bracket this file used
+// to have. That change is what makes the stimulus timing exact, and the
+// reason is in the frameplayer's own source:
+//
+// - At frame start, exp-lookit-images-audio's startTrialIfReady() gates on
+//   `(recordingStarted || !recordingNeeded) && image_loaded_count >= nImages`,
+//   and only then does startTrial() arm the durationSeconds timer. With
+//   per-frame doRecording:true, "stimuli are not displayed and audio is not
+//   started until recording begins" (their docs), so every trial paid a
+//   webcam spin-up before its images appeared - and because the preceding
+//   ISI frame had already rendered a blank gray screen, that spin-up was
+//   visually indistinguishable from the ISI. That is why the ISI looked
+//   longer than the 1-2s it was actually set to.
+// - At frame end, the video-record mixin's willDestroyElement calls
+//   stopRecorder() and waits on a promise that "resolves when upload is
+//   complete" before the frame advances. showWaitForUploadMessage:false
+//   (which we had set, to keep a "please wait" card away from the child)
+//   suppresses the cover overlay but NOT the wait - so the two trial
+//   images stayed on screen for 6s PLUS a variable, network-dependent
+//   stop/upload tail. That is why trials were not exactly 6 seconds.
+//
+// With doRecording:false on every frame below, the only remaining gate is
+// image_loaded_count, so trial images display for exactly
+// TRIAL_IMAGE_SECONDS and the ISI lasts exactly its drawn duration.
+//
+// Tradeoff, stated plainly: a hard crash or tab-close mid-block now risks
+// the whole block's video rather than just the trial in progress. A
+// graceful Escape -> Exit still runs to the stop-recording frame and
+// uploads. Reverting is a small, local change - see README.
 //
 // Stimuli are hosted at their real MATLAB-mirroring layout
-// (stimuli/Simsom_LWL/{AG_stimuli,BodyParts,Toys}/...), not a flat img/
-// folder, so every image/audio `src` below is a full absolute URL built
+// (stimuli/{AG_stimuli,Toys}/...), not a flat img/ folder, so every
+// image/audio `src` below is a full absolute URL built
 // from STIMULI_BASE_URL + the real subfolder - this sidesteps EFP's
 // baseDir + img//mp3/ auto-subfolder convention entirely rather than
 // depending on unverified behavior for a layout it doesn't match anyway.
@@ -347,9 +411,42 @@ function buildAttentionGetterFrame(attentionGetter) {
     calibrationPositions: [attentionGetter.side, 'center'],
     calibrationLength: AG_CALIBRATION_LENGTH_MS,
     backgroundColor: BACKGROUND_COLOR,
-    doRecording: true,
-    showWaitForRecordingMessage: false,
-    showWaitForUploadMessage: false,
+    // false: the session recorder installed by the start-recording frame
+    // is already running. See the RECORDING note at the top of this file.
+    doRecording: false,
+  };
+}
+
+// Brackets the trial block with one session-level recorder. Both frames
+// show a spinning attention-getter shape while the webcam connects /
+// uploads, so the child has something to look at instead of a blank
+// screen - these are the only two frames in the block whose duration is
+// network-dependent, and they sit outside every measured trial.
+function buildStartRecordingFrame() {
+  return {
+    id: 'start-session-recording',
+    kind: 'exp-lookit-start-recording',
+    image: stimulusUrl('AG_stimuli', 'star.png'),
+    imageAnimation: 'spin',
+    backgroundColor: BACKGROUND_COLOR,
+    displayFullscreen: true,
+    waitForVideoMessage: '',
+  };
+}
+
+function buildStopRecordingFrame() {
+  return {
+    id: 'stop-session-recording',
+    kind: 'exp-lookit-stop-recording',
+    image: stimulusUrl('AG_stimuli', 'star.png'),
+    imageAnimation: 'spin',
+    backgroundColor: BACKGROUND_COLOR,
+    displayFullscreen: true,
+    sessionMaxUploadSeconds: SESSION_MAX_UPLOAD_SECONDS,
+    // The child is done by this point, so an upload progress bar is
+    // useful to the parent rather than a distraction.
+    showProgressBar: true,
+    waitForUploadMessage: 'Uploading your video, please do not close this window...',
   };
 }
 
@@ -375,7 +472,7 @@ function buildTrialImageFrame(trial) {
     images: [
       {
         id: 'imageA',
-        src: stimulusUrl(trial.category, trial.imageA),
+        src: stimulusUrl(TRIAL_IMAGE_SUBFOLDER, trial.imageA),
         left: leftOffsetBySide[trial.sideOfA],
         width: TRIAL_IMAGE_WIDTH_PERCENT,
         top: TRIAL_IMAGE_TOP_PERCENT,
@@ -383,7 +480,7 @@ function buildTrialImageFrame(trial) {
       },
       {
         id: 'imageB',
-        src: stimulusUrl(trial.category, trial.imageB),
+        src: stimulusUrl(TRIAL_IMAGE_SUBFOLDER, trial.imageB),
         left: leftOffsetBySide[sideOfB],
         width: TRIAL_IMAGE_WIDTH_PERCENT,
         top: TRIAL_IMAGE_TOP_PERCENT,
@@ -393,13 +490,10 @@ function buildTrialImageFrame(trial) {
     durationSeconds: TRIAL_IMAGE_SECONDS,
     autoProceed: true,
     choiceAllowed: false,
-    doRecording: true,
-    // Every doRecording:true frame re-installs its own recorder and, by
-    // default, shows a "please wait, starting webcam recording"/upload
-    // interstitial - suppressed here since recording restarts on every
-    // single trial (the ISI frame between trials is doRecording:false).
-    showWaitForRecordingMessage: false,
-    showWaitForUploadMessage: false,
+    // false: the session recorder is already running, so nothing gates
+    // the images except their own load, and durationSeconds is therefore
+    // the exact on-screen time. See the RECORDING note at the top.
+    doRecording: false,
     // pairID/sideOfA are carried in the frame id and image ids so they're
     // recoverable from exported session data without a side channel.
   };
@@ -441,16 +535,24 @@ function buildTrialGroup(trial, index) {
 
 // Returns { frames, sequence } fragments for the trial portion only - the
 // caller (protocol.js) merges these into the full study frames/sequence
-// alongside the intro/consent/outro frames.
+// alongside the intro/consent/outro frames. The fragment is bracketed by
+// the session-recording start/stop frames, so the recorder covers every
+// trial and nothing else.
 function buildTrialFrames(plan) {
-  const frames = {};
-  const sequence = [];
+  const startFrame = buildStartRecordingFrame();
+  const stopFrame = buildStopRecordingFrame();
+
+  const frames = { [startFrame.id]: startFrame };
+  const sequence = [startFrame.id];
 
   plan.forEach((trial, index) => {
     const { id, frame } = buildTrialGroup(trial, index);
     frames[id] = frame;
     sequence.push(id);
   });
+
+  frames[stopFrame.id] = stopFrame;
+  sequence.push(stopFrame.id);
 
   return { frames, sequence };
 }
@@ -545,15 +647,15 @@ const WELCOME_INSTRUCTIONS = {
     { emph: true, title: 'Welcome!', text: 'Thank you for taking the time to participate in our study!' },
     {
       text:
-        'This study will take at most 20 minutes of your time, including set up and debrief. Your child needs to ' +
-        'be present for at most 8 minutes.',
+        'This study will take at most 25 minutes of your time, including set up and debrief. Your child needs to ' +
+        'be present for about 10 minutes.',
     },
     { text: '\n<u>Here are our estimates for how long each part of this study will take:</u>' },
     {
       listblocks: [
         { text: 'Consent (happening now) <b>[1 minute]</b> - your child <i>must</i> be present when you record the consent video' },
         { text: 'Introduction and setup <b>[5 minutes]</b> - your child does <i>not</i> need to be present' },
-        { text: 'Experiment <b>[5-7 minutes]</b> - your child <i>must</i> be present' },
+        { text: 'Experiment <b>[about 10 minutes]</b> - your child <i>must</i> be present' },
         { text: 'Debrief <b>[5 minutes]</b> - your child does <i>not</i> need to be present' },
       ],
     },
@@ -611,27 +713,27 @@ const STUDY_INTRO_VIDEO = {
     },
     {
       text:
-        'Then we will show your child two images, which we call an “experimental trial.” These images consist of naturalistic photos of toys like blocks or cars,' +
-        'and bodyparts, like eyes, or teeth. ' +
+        'Then we will show your child two images, which we call an “experimental trial.” These images are ' +
+        'naturalistic photos of everyday objects, like blocks, cars, or keys. ' +
         // `Your child may also hear a label referring to one of the images, such as "Look at the blocks!" ` +
         'When your child is watching one of these trials, we will measure how long they want to look at each image on the screen.',
     },
     {
       text:
-        'The experiment will start by showing a picture of an attention getter, follow by either a two toys or two bodyparts, side by ' +
-        'side. Throughout the study, your child will continue to see see attention-getters with various colorful shapes and sounds. This is so we can make sure ' +
-        'they are looking at the screen throughout the entire experiment. Each experiment trial, that is the ones with the images, lasts about'+
+        'The experiment will start by showing a picture of an attention getter, followed by two objects, side by ' +
+        'side. Throughout the study, your child will continue to see attention-getters with various colorful shapes and sounds. This is so we can make sure ' +
+        'they are looking at the screen throughout the entire experiment. Each experiment trial, that is the ones with the images, lasts about '+
         'six seconds. Next, we’ll show another trial with two images side by side for another six seconds. '
     },
     {
       text:
-        'We will repeat around 30 of these experiment trials in total, plus the attention getter trials that ' +
+        'We will repeat 60 of these experiment trials in total, plus the attention getter trials that ' +
         'will be interleaved throughout the study.',
     },
     {
       text:
-        'Together, the attention getter video and the experimental trials can take up to 7 minutes. ' +
-        'After 7 minutes, the study will end and the videos will stop automatically. ' +
+        'Together, the attention getter video and the experimental trials take about 10 minutes. ' +
+        'After about 10 minutes, the study will end and the videos will stop automatically. ' +
         'You can pause or stop the study at any time by pressing the escape key. ' +
         'Please note, while the attention getter has sound, the experiment trials do not have any sound.',
     },

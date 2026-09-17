@@ -1,22 +1,24 @@
-// Fixed inventory of the 120 unique image pairs, derived from the same
-// within-category factorial as GenerateTrials_Simsom_LWL.m:
+// Fixed inventory of the 60 unique image pairs, derived from the same
+// within-category factorial as GenerateTrials_Simsom_LWL.m, restricted to
+// the objects category (the body-part category has been dropped from this
+// study entirely):
 //
-//   6 tokens/category, all unordered token pairs (6 choose 2 = 15/category),
-//   x2 categories = 30 unordered token pairs
+//   6 object tokens, all unordered token pairs (6 choose 2 = 15),
 //   x4 familiarity combinations per token pair (FF, UU, and the two mixed
-//     F/U assignments, which are genuinely different images) = 120 pairs.
+//     F/U assignments, which are genuinely different images) = 60 pairs.
 //
-// The MATLAB code gets to 120 via a different route: it builds 60 *ordered*
-// (target, lure) token pairs x4 familiarity combos = 240 raw target/lure
-// slots, which double-count each unordered image pair once per direction
-// (target=A/lure=B and target=B/lure=A land on the same two images). Once
-// the spoken label - and the target/lure role it created - is dropped, only
-// the unordered pair survives, so 240/2 = 120. Same inventory, no label.
+// The MATLAB code gets to its own inventory via a different route: it builds
+// *ordered* (target, lure) token pairs x4 familiarity combos, which
+// double-count each unordered image pair once per direction (target=A/lure=B
+// and target=B/lure=A land on the same two images). Once the spoken label -
+// and the target/lure role it created - is dropped, only the unordered pair
+// survives, so the objects half of MATLAB's 240 raw slots (120) halves to
+// these 60. Same inventory, no label.
+//
+// 60 pairs is exactly NUM_TRIALS (config.js), so every child sees the
+// complete inventory once - see randomization.js.
 
-const CATEGORIES = {
-  BodyParts: ['nose', 'teeth', 'eye', 'hand', 'shin', 'knee'],
-  Toys: ['car', 'ball', 'blocks', 'keys', 'fridge', 'drawer'],
-};
+const TOKENS = ['car', 'ball', 'blocks', 'keys', 'fridge', 'drawer'];
 
 const FAMILIARITIES = ['F', 'U'];
 
@@ -24,11 +26,15 @@ function imageFilename(familiarity, token) {
   return `${familiarity}_${token}.png`;
 }
 
-// Canonical pairID: category-tokenLow-tokenHigh-famOfLowfamOfHigh, tokens
-// sorted alphabetically so the ID is stable regardless of trial-time side
-// assignment. e.g. "bodyparts-eye-teeth-FU" -> imageA = F_eye.png (the "low"
-// token), imageB = U_teeth.png (the "high" token). Side (sideOfA) is decided
-// per trial by randomization.js, not baked into the ID.
+// Canonical pairID: tokenLow-tokenHigh-famOfLowfamOfHigh, tokens sorted
+// alphabetically so the ID is stable regardless of trial-time side
+// assignment. e.g. "ball-blocks-FU" -> imageA = F_ball.png (the "low"
+// token), imageB = U_blocks.png (the "high" token). Side (sideOfA) is
+// decided per trial by randomization.js, not baked into the ID.
+//
+// There is no longer a category segment in the ID (it used to read
+// "toys-ball-blocks-FU"): with body parts gone there is only one category,
+// so the segment carried no information.
 //
 // Dash-only (no underscores): pairID gets spliced directly into Lookit
 // frame ids (frames.js), and Lookit frame ids may only contain letters,
@@ -36,26 +42,20 @@ function imageFilename(familiarity, token) {
 // console-only validation error with no on-screen message.
 function getAllPairs() {
   const pairs = [];
+  const sortedTokens = [...TOKENS].sort();
 
-  for (const [category, tokens] of Object.entries(CATEGORIES)) {
-    const sortedTokens = [...tokens].sort();
+  for (let i = 0; i < sortedTokens.length; i++) {
+    for (let j = i + 1; j < sortedTokens.length; j++) {
+      const tokenLow = sortedTokens[i];
+      const tokenHigh = sortedTokens[j];
 
-    for (let i = 0; i < sortedTokens.length; i++) {
-      for (let j = i + 1; j < sortedTokens.length; j++) {
-        const tokenLow = sortedTokens[i];
-        const tokenHigh = sortedTokens[j];
-
-        for (const famLow of FAMILIARITIES) {
-          for (const famHigh of FAMILIARITIES) {
-            const pairID = `${category.toLowerCase()}-${tokenLow}-${tokenHigh}-${famLow}${famHigh}`;
-
-            pairs.push({
-              pairID,
-              category,
-              imageA: imageFilename(famLow, tokenLow),
-              imageB: imageFilename(famHigh, tokenHigh),
-            });
-          }
+      for (const famLow of FAMILIARITIES) {
+        for (const famHigh of FAMILIARITIES) {
+          pairs.push({
+            pairID: `${tokenLow}-${tokenHigh}-${famLow}${famHigh}`,
+            imageA: imageFilename(famLow, tokenLow),
+            imageB: imageFilename(famHigh, tokenHigh),
+          });
         }
       }
     }
@@ -64,4 +64,4 @@ function getAllPairs() {
   return pairs;
 }
 
-module.exports = { CATEGORIES, FAMILIARITIES, getAllPairs, imageFilename };
+module.exports = { TOKENS, FAMILIARITIES, getAllPairs, imageFilename };

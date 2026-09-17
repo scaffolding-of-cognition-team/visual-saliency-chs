@@ -88,15 +88,15 @@ const WELCOME_INSTRUCTIONS = {
     { emph: true, title: 'Welcome!', text: 'Thank you for taking the time to participate in our study!' },
     {
       text:
-        'This study will take at most 20 minutes of your time, including set up and debrief. Your child needs to ' +
-        'be present for at most 8 minutes.',
+        'This study will take at most 25 minutes of your time, including set up and debrief. Your child needs to ' +
+        'be present for about 10 minutes.',
     },
     { text: '\n<u>Here are our estimates for how long each part of this study will take:</u>' },
     {
       listblocks: [
         { text: 'Consent (happening now) <b>[1 minute]</b> - your child <i>must</i> be present when you record the consent video' },
         { text: 'Introduction and setup <b>[5 minutes]</b> - your child does <i>not</i> need to be present' },
-        { text: 'Experiment <b>[5-7 minutes]</b> - your child <i>must</i> be present' },
+        { text: 'Experiment <b>[about 10 minutes]</b> - your child <i>must</i> be present' },
         { text: 'Debrief <b>[5 minutes]</b> - your child does <i>not</i> need to be present' },
       ],
     },
@@ -154,27 +154,27 @@ const STUDY_INTRO_VIDEO = {
     },
     {
       text:
-        'Then we will show your child two images, which we call an “experimental trial.” These images consist of naturalistic photos of toys like blocks or cars,' +
-        'and bodyparts, like eyes, or teeth. ' +
+        'Then we will show your child two images, which we call an “experimental trial.” These images are ' +
+        'naturalistic photos of everyday objects, like blocks, cars, or keys. ' +
         // `Your child may also hear a label referring to one of the images, such as "Look at the blocks!" ` +
         'When your child is watching one of these trials, we will measure how long they want to look at each image on the screen.',
     },
     {
       text:
-        'The experiment will start by showing a picture of an attention getter, follow by either a two toys or two bodyparts, side by ' +
-        'side. Throughout the study, your child will continue to see see attention-getters with various colorful shapes and sounds. This is so we can make sure ' +
-        'they are looking at the screen throughout the entire experiment. Each experiment trial, that is the ones with the images, lasts about'+
+        'The experiment will start by showing a picture of an attention getter, followed by two objects, side by ' +
+        'side. Throughout the study, your child will continue to see attention-getters with various colorful shapes and sounds. This is so we can make sure ' +
+        'they are looking at the screen throughout the entire experiment. Each experiment trial, that is the ones with the images, lasts about '+
         'six seconds. Next, we’ll show another trial with two images side by side for another six seconds. '
     },
     {
       text:
-        'We will repeat around 30 of these experiment trials in total, plus the attention getter trials that ' +
+        'We will repeat 60 of these experiment trials in total, plus the attention getter trials that ' +
         'will be interleaved throughout the study.',
     },
     {
       text:
-        'Together, the attention getter video and the experimental trials can take up to 7 minutes. ' +
-        'After 7 minutes, the study will end and the videos will stop automatically. ' +
+        'Together, the attention getter video and the experimental trials take about 10 minutes. ' +
+        'After about 10 minutes, the study will end and the videos will stop automatically. ' +
         'You can pause or stop the study at any time by pressing the escape key. ' +
         'Please note, while the attention getter has sound, the experiment trials do not have any sound.',
     },
