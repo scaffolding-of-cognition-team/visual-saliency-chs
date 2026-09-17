@@ -26,37 +26,72 @@ const {
   STUDY_DEBRIEF,
 } = require('./src/text');
 
-// Lookit's own protocol-generator docs list child's accessible fields as
-// givenName/birthday/gender/ageAtBirth/additionalInformation/languageList/
-// conditionList (all via child.get(...), since child is an Ember object,
-// not a plain JS object) - no `id` field is documented. Ember Data records
-// commonly expose `id` as a plain property outside that attributes hash,
-// so it's tried first, but this is NOT confirmed against a live Lookit
-// session. VERIFY on first real preview: register two different preview
-// children and confirm they get different trial sequences. If they don't,
-// child.id isn't resolving and this needs a different identifier.
-function getChildId(child) {
-  if (!child) return 'anonymous';
-  if (child.id) return `id:${child.id}`;
-  if (typeof child.get === 'function') {
-    const givenName = child.get('givenName');
-    const birthday = child.get('birthday');
-    if (givenName || birthday) {
-      // eslint-disable-next-line no-console
-      console.warn('generateProtocol: child.id unavailable, falling back to givenName+birthday for seeding.');
-      return `name:${givenName}|birthday:${birthday}`;
+// Fresh entropy, used to seed the attention-getter stream only. AGs vary
+// run to run; the image trials do not (see getChildSeed).
+function makeSessionSeed() {
+  const entropy = [
+    Date.now().toString(36),
+    Math.random().toString(36).slice(2),
+    Math.random().toString(36).slice(2),
+  ].join('-');
+  return `session-${entropy}`;
+}
+
+// Seeds the IMAGE-TRIAL stream (pair order, sides, ISIs), which must be
+// stable for a given child so that a reload does not reshuffle the trials
+// and complete 60-pair coverage survives.
+//
+// Lookit's docs list child's accessible fields as givenName / birthday /
+// gender / ageAtBirth / additionalInformation / languageList /
+// conditionList, all via child.get(...) - `id` is not documented. But
+// `child` is an Ember Data record (exp-player passes `session.child`), and
+// those expose the primary key as `.id` outside the attributes hash, so
+// that is tried first, then via .get('id'), then a name+birthday composite.
+//
+// LAST RESORT IS RANDOM, NOT A CONSTANT. An earlier version returned the
+// literal 'anonymous' here, which meant every child lacking a resolvable
+// id shared one identical pair order - perfectly confounding pair identity
+// with serial position across the whole sample. Degrading to random keeps
+// the across-child randomisation that actually protects the design, and
+// costs only the reload-stability, which is the lesser guarantee.
+function getChildSeed(child) {
+  if (child) {
+    if (child.id) return `child:${child.id}`;
+    if (typeof child.get === 'function') {
+      const emberId = child.get('id');
+      if (emberId) return `child:${emberId}`;
+
+      const givenName = child.get('givenName');
+      const birthday = child.get('birthday');
+      if (givenName || birthday) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          'generateProtocol: child.id unavailable; seeding image trials from givenName+birthday instead. ' +
+          'Stable for this child, but two children sharing both would share a trial order.'
+        );
+        return `child:${givenName}|${String(birthday)}`;
+      }
     }
   }
+
+  const fallback = makeSessionSeed();
   // eslint-disable-next-line no-console
-  console.warn("generateProtocol: no usable child identifier found - falling back to 'anonymous'. Every child would get an identical session; this must not happen in production.");
-  return 'anonymous';
+  console.warn(
+    'generateProtocol: no stable child identifier found. Image-trial order is random this session ' +
+    'and WILL reshuffle if the page reloads (so 60-pair coverage is only guaranteed within one ' +
+    'uninterrupted run). Randomisation across children is unaffected. Seed: ' + fallback
+  );
+  return fallback;
 }
 
 function generateProtocol(child, pastSessions) {
-  const childId = getChildId(child);
+  const childSeed = getChildSeed(child);
+  const sessionSeed = makeSessionSeed();
+  // eslint-disable-next-line no-console
+  console.log(`generateProtocol: childSeed ${childSeed} | sessionSeed ${sessionSeed}`);
 
   const allPairs = getAllPairs();
-  const plan = generateSessionPlan(childId, allPairs);
+  const plan = generateSessionPlan({ childSeed, sessionSeed }, allPairs);
   const { frames: trialFrames, sequence: trialSequence } = buildTrialFrames(plan);
 
   const frames = {

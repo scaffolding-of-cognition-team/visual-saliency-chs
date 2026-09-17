@@ -193,14 +193,18 @@ function getAllPairs() {
 }
 
 // ---- src/randomization.js ----
-// Per-child seeded trial-set generation.
+// Seeded trial-set generation.
 //
 // No global cross-participant state: generateProtocol only ever sees THIS
-// child's (child, pastSessions), so there's no participant counter to base
-// a rotation/pointer/Latin-square-position on. A PRNG seeded from the
-// child's own ID is the substitute - deterministic and reproducible for a
-// given child (re-running generateProtocol for the same child yields the
-// same session), independent across children, with no shared state.
+// session's (child, pastSessions), so there's no participant counter to
+// base a rotation/pointer/Latin-square-position on. A seeded PRNG is the
+// substitute.
+//
+// The seed itself is supplied by the caller. protocol.js passes fresh
+// entropy per session (see makeSessionSeed there), so every run gets a new
+// order; passing a fixed string instead makes the whole session
+// reproducible, which is what the checks below and any ad-hoc replay rely
+// on. This module is agnostic: same seed in, same session out.
 //
 // Design translation from GenerateTrials_Simsom_LWL.m (see README for the
 // full writeup): the MATLAB script's only real, verified guarantee is
@@ -273,15 +277,40 @@ function buildAttentionGetter(rng) {
 //   { pairID, imageA, imageB, sideOfA, attentionGetter, isiSeconds }
 // Exactly one of attentionGetter / isiSeconds is non-null per trial: an AG
 // replaces the ISI (MATLAB's Post_wait covers that gap instead).
-function generateSessionPlan(childId, allPairs, options = {}) {
+// TWO INDEPENDENT RNG STREAMS, and the split is deliberate:
+//
+//   childRng   - pair order, side assignment, ISI durations. Seeded from
+//                the child's identity, so the image trials are IDENTICAL
+//                every time this runs for that child. A reload therefore
+//                does NOT reshuffle them and complete 60-pair coverage
+//                survives.
+//   sessionRng - whether an AG fires on each trial, and each AG's
+//                shape/motion/sound/side. Seeded from fresh per-session
+//                entropy, so attention getters vary run to run.
+//
+// They must be separate streams, not one: the number of draws an AG
+// consumes varies (0 when it doesn't fire, 5 when it does), so a single
+// stream would let the AG schedule shift every downstream image draw - the
+// exact coupling this split exists to break. Each stream's consumption is
+// now independent of the other's.
+function generateSessionPlan(seeds, allPairs, options = {}) {
   const numTrials = options.numTrials || NUM_TRIALS;
   const isiRange = options.isiRange || ISI_SECONDS_RANGE;
+
+  // A bare string is accepted so a single seed still reproduces a whole
+  // session (used for replaying a session by hand, and by the checks).
+  const { childSeed, sessionSeed } =
+    typeof seeds === 'string' ? { childSeed: seeds, sessionSeed: seeds } : seeds;
 
   if (allPairs.length < numTrials) {
     throw new Error(`Only ${allPairs.length} pairs available, need ${numTrials}`);
   }
+  if (!childSeed || !sessionSeed) {
+    throw new Error('generateSessionPlan needs both childSeed and sessionSeed');
+  }
 
-  const rng = createRng(childId);
+  const childRng = createRng(childSeed);
+  const sessionRng = createRng(sessionSeed);
 
   // Seeded permutation of the whole pair inventory, take the first N. With
   // numTrials === allPairs.length (60 = 60, the intended configuration)
@@ -291,7 +320,7 @@ function generateSessionPlan(childId, allPairs, options = {}) {
   // GenerateTrials_Simsom_LWL.m does, now at the level of a single session.
   // The slice is kept so a smaller numTrials (e.g. for a pilot) still
   // yields a uniform random subset rather than throwing.
-  const chosenPairs = shuffle(allPairs, rng).slice(0, numTrials);
+  const chosenPairs = shuffle(allPairs, childRng).slice(0, numTrials);
 
   let trialsSinceLastAG = 0;
   const plan = [];
@@ -307,15 +336,15 @@ function generateSessionPlan(childId, allPairs, options = {}) {
     // isFirstTrial short-circuits before drawing - mirrors
     // Experiment_Simsom_LWL.m always forcing an AG on the very first trial
     // (Data.AG_session_counter starts empty), rather than rolling for it.
-    const showAG = isFirstTrial || rng() < agProbability;
+    const showAG = isFirstTrial || sessionRng() < agProbability;
 
     let attentionGetter = null;
     if (showAG) {
-      attentionGetter = buildAttentionGetter(rng);
+      attentionGetter = buildAttentionGetter(sessionRng);
       trialsSinceLastAG = 0;
     }
 
-    const sideOfA = rng() < 0.5 ? 'left' : 'right';
+    const sideOfA = childRng() < 0.5 ? 'left' : 'right';
 
     // Continuous uniform draw on [1, 2) seconds, independently per trial -
     // matches Experiment_Simsom_LWL.m's Parameters.ISI = [1, 2]. Rounded to
@@ -324,14 +353,14 @@ function generateSessionPlan(childId, allPairs, options = {}) {
     // digits of a float are noise: the browser's own timer resolution is
     // coarser than that.
     //
-    // Drawn unconditionally, then discarded on attention-getter trials,
-    // where the AG's own Post_wait stands in for the ISI (see
-    // frames.js's buildTrialGroup). Drawing first and discarding after
-    // keeps one draw per trial, so the RNG stream - and therefore every
-    // child's pair order, AG schedule and side assignments - is unaffected
-    // by whether a given trial happens to carry an AG.
+    // Drawn unconditionally from childRng, then discarded on
+    // attention-getter trials, where the AG's own Post_wait stands in for
+    // the ISI (see frames.js's buildTrialGroup). Drawing first and
+    // discarding after keeps exactly one childRng draw per trial, so the
+    // image-trial stream stays independent of which trials the session's
+    // AG schedule happens to land on.
     const isiDraw =
-      Math.round((isiRange[0] + rng() * (isiRange[1] - isiRange[0])) * 1000) / 1000;
+      Math.round((isiRange[0] + childRng() * (isiRange[1] - isiRange[0])) * 1000) / 1000;
     const isiSeconds = attentionGetter ? null : isiDraw;
 
     plan.push({
@@ -481,20 +510,27 @@ function buildAttentionGetterFrame(attentionGetter) {
   };
 }
 
-// Brackets the trial block with one session-level recorder. Both frames
-// show a spinning attention-getter shape while the webcam connects /
-// uploads, so the child has something to look at instead of a blank
-// screen - these are the only two frames in the block whose duration is
-// network-dependent, and they sit outside every measured trial.
+// Brackets the trial block with one session-level recorder. These are the
+// only two frames in the block whose duration is network-dependent, and
+// they sit outside every measured trial.
+//
+// Deliberately NO `image`/`video` placeholder. An earlier version showed a
+// spinning AG shape here to give the child something to look at, but it
+// reads as a stray, half-second attention getter immediately before the
+// real ones - confusing, and it pre-empts the first AG.
+//
+// `waitForVideoMessage` must also be a NON-EMPTY string. The frame's
+// template is `{{#if waitForVideoMessage}} ... {{else}} establishing video
+// connection / please wait... {{/if}}`, and '' is falsy in Handlebars, so
+// passing an empty string does not blank the text - it shows the built-in
+// default instead. Same trap on the stop frame's waitForUploadMessage.
 function buildStartRecordingFrame() {
   return {
     id: 'start-session-recording',
     kind: 'exp-lookit-start-recording',
-    image: stimulusUrl('AG_stimuli', 'star.png'),
-    imageAnimation: 'spin',
     backgroundColor: BACKGROUND_COLOR,
     displayFullscreen: true,
-    waitForVideoMessage: '',
+    waitForVideoMessage: 'Getting the study ready, please wait...',
   };
 }
 
@@ -502,8 +538,6 @@ function buildStopRecordingFrame() {
   return {
     id: 'stop-session-recording',
     kind: 'exp-lookit-stop-recording',
-    image: stimulusUrl('AG_stimuli', 'star.png'),
-    imageAnimation: 'spin',
     backgroundColor: BACKGROUND_COLOR,
     displayFullscreen: true,
     sessionMaxUploadSeconds: SESSION_MAX_UPLOAD_SECONDS,
@@ -1077,36 +1111,71 @@ const STUDY_DEBRIEF = {
 
 
 
-// Lookit's own protocol-generator docs list child's accessible fields as
-// givenName/birthday/gender/ageAtBirth/additionalInformation/languageList/
-// conditionList (all via child.get(...), since child is an Ember object,
-// not a plain JS object) - no `id` field is documented. Ember Data records
-// commonly expose `id` as a plain property outside that attributes hash,
-// so it's tried first, but this is NOT confirmed against a live Lookit
-// session. VERIFY on first real preview: register two different preview
-// children and confirm they get different trial sequences. If they don't,
-// child.id isn't resolving and this needs a different identifier.
-function getChildId(child) {
-  if (!child) return 'anonymous';
-  if (child.id) return `id:${child.id}`;
-  if (typeof child.get === 'function') {
-    const givenName = child.get('givenName');
-    const birthday = child.get('birthday');
-    if (givenName || birthday) {
-      // eslint-disable-next-line no-console
-      console.warn('generateProtocol: child.id unavailable, falling back to givenName+birthday for seeding.');
-      return `name:${givenName}|birthday:${birthday}`;
-    }
-  }
-  // eslint-disable-next-line no-console
-  console.warn("generateProtocol: no usable child identifier found - falling back to 'anonymous'. Every child would get an identical session; this must not happen in production.");
-  return 'anonymous';
+// Fresh entropy, used to seed the attention-getter stream only. AGs vary
+// run to run; the image trials do not (see getChildSeed).
+function makeSessionSeed() {
+  const entropy = [
+    Date.now().toString(36),
+    Math.random().toString(36).slice(2),
+    Math.random().toString(36).slice(2),
+  ].join('-');
+  return `session-${entropy}`;
 }
 
-const childId = getChildId(child);
+// Seeds the IMAGE-TRIAL stream (pair order, sides, ISIs), which must be
+// stable for a given child so that a reload does not reshuffle the trials
+// and complete 60-pair coverage survives.
+//
+// Lookit's docs list child's accessible fields as givenName / birthday /
+// gender / ageAtBirth / additionalInformation / languageList /
+// conditionList, all via child.get(...) - `id` is not documented. But
+// `child` is an Ember Data record (exp-player passes `session.child`), and
+// those expose the primary key as `.id` outside the attributes hash, so
+// that is tried first, then via .get('id'), then a name+birthday composite.
+//
+// LAST RESORT IS RANDOM, NOT A CONSTANT. An earlier version returned the
+// literal 'anonymous' here, which meant every child lacking a resolvable
+// id shared one identical pair order - perfectly confounding pair identity
+// with serial position across the whole sample. Degrading to random keeps
+// the across-child randomisation that actually protects the design, and
+// costs only the reload-stability, which is the lesser guarantee.
+function getChildSeed(child) {
+  if (child) {
+    if (child.id) return `child:${child.id}`;
+    if (typeof child.get === 'function') {
+      const emberId = child.get('id');
+      if (emberId) return `child:${emberId}`;
+
+      const givenName = child.get('givenName');
+      const birthday = child.get('birthday');
+      if (givenName || birthday) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          'generateProtocol: child.id unavailable; seeding image trials from givenName+birthday instead. ' +
+          'Stable for this child, but two children sharing both would share a trial order.'
+        );
+        return `child:${givenName}|${String(birthday)}`;
+      }
+    }
+  }
+
+  const fallback = makeSessionSeed();
+  // eslint-disable-next-line no-console
+  console.warn(
+    'generateProtocol: no stable child identifier found. Image-trial order is random this session ' +
+    'and WILL reshuffle if the page reloads (so 60-pair coverage is only guaranteed within one ' +
+    'uninterrupted run). Randomisation across children is unaffected. Seed: ' + fallback
+  );
+  return fallback;
+}
+
+const childSeed = getChildSeed(child);
+  const sessionSeed = makeSessionSeed();
+  // eslint-disable-next-line no-console
+  console.log(`generateProtocol: childSeed ${childSeed} | sessionSeed ${sessionSeed}`);
 
   const allPairs = getAllPairs();
-  const plan = generateSessionPlan(childId, allPairs);
+  const plan = generateSessionPlan({ childSeed, sessionSeed }, allPairs);
   const { frames: trialFrames, sequence: trialSequence } = buildTrialFrames(plan);
 
   const frames = {

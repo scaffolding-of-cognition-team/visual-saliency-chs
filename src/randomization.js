@@ -1,11 +1,15 @@
-// Per-child seeded trial-set generation.
+// Seeded trial-set generation.
 //
 // No global cross-participant state: generateProtocol only ever sees THIS
-// child's (child, pastSessions), so there's no participant counter to base
-// a rotation/pointer/Latin-square-position on. A PRNG seeded from the
-// child's own ID is the substitute - deterministic and reproducible for a
-// given child (re-running generateProtocol for the same child yields the
-// same session), independent across children, with no shared state.
+// session's (child, pastSessions), so there's no participant counter to
+// base a rotation/pointer/Latin-square-position on. A seeded PRNG is the
+// substitute.
+//
+// The seed itself is supplied by the caller. protocol.js passes fresh
+// entropy per session (see makeSessionSeed there), so every run gets a new
+// order; passing a fixed string instead makes the whole session
+// reproducible, which is what the checks below and any ad-hoc replay rely
+// on. This module is agnostic: same seed in, same session out.
 //
 // Design translation from GenerateTrials_Simsom_LWL.m (see README for the
 // full writeup): the MATLAB script's only real, verified guarantee is
@@ -79,15 +83,40 @@ function buildAttentionGetter(rng) {
 //   { pairID, imageA, imageB, sideOfA, attentionGetter, isiSeconds }
 // Exactly one of attentionGetter / isiSeconds is non-null per trial: an AG
 // replaces the ISI (MATLAB's Post_wait covers that gap instead).
-function generateSessionPlan(childId, allPairs, options = {}) {
+// TWO INDEPENDENT RNG STREAMS, and the split is deliberate:
+//
+//   childRng   - pair order, side assignment, ISI durations. Seeded from
+//                the child's identity, so the image trials are IDENTICAL
+//                every time this runs for that child. A reload therefore
+//                does NOT reshuffle them and complete 60-pair coverage
+//                survives.
+//   sessionRng - whether an AG fires on each trial, and each AG's
+//                shape/motion/sound/side. Seeded from fresh per-session
+//                entropy, so attention getters vary run to run.
+//
+// They must be separate streams, not one: the number of draws an AG
+// consumes varies (0 when it doesn't fire, 5 when it does), so a single
+// stream would let the AG schedule shift every downstream image draw - the
+// exact coupling this split exists to break. Each stream's consumption is
+// now independent of the other's.
+function generateSessionPlan(seeds, allPairs, options = {}) {
   const numTrials = options.numTrials || NUM_TRIALS;
   const isiRange = options.isiRange || ISI_SECONDS_RANGE;
+
+  // A bare string is accepted so a single seed still reproduces a whole
+  // session (used for replaying a session by hand, and by the checks).
+  const { childSeed, sessionSeed } =
+    typeof seeds === 'string' ? { childSeed: seeds, sessionSeed: seeds } : seeds;
 
   if (allPairs.length < numTrials) {
     throw new Error(`Only ${allPairs.length} pairs available, need ${numTrials}`);
   }
+  if (!childSeed || !sessionSeed) {
+    throw new Error('generateSessionPlan needs both childSeed and sessionSeed');
+  }
 
-  const rng = createRng(childId);
+  const childRng = createRng(childSeed);
+  const sessionRng = createRng(sessionSeed);
 
   // Seeded permutation of the whole pair inventory, take the first N. With
   // numTrials === allPairs.length (60 = 60, the intended configuration)
@@ -97,7 +126,7 @@ function generateSessionPlan(childId, allPairs, options = {}) {
   // GenerateTrials_Simsom_LWL.m does, now at the level of a single session.
   // The slice is kept so a smaller numTrials (e.g. for a pilot) still
   // yields a uniform random subset rather than throwing.
-  const chosenPairs = shuffle(allPairs, rng).slice(0, numTrials);
+  const chosenPairs = shuffle(allPairs, childRng).slice(0, numTrials);
 
   let trialsSinceLastAG = 0;
   const plan = [];
@@ -113,15 +142,15 @@ function generateSessionPlan(childId, allPairs, options = {}) {
     // isFirstTrial short-circuits before drawing - mirrors
     // Experiment_Simsom_LWL.m always forcing an AG on the very first trial
     // (Data.AG_session_counter starts empty), rather than rolling for it.
-    const showAG = isFirstTrial || rng() < agProbability;
+    const showAG = isFirstTrial || sessionRng() < agProbability;
 
     let attentionGetter = null;
     if (showAG) {
-      attentionGetter = buildAttentionGetter(rng);
+      attentionGetter = buildAttentionGetter(sessionRng);
       trialsSinceLastAG = 0;
     }
 
-    const sideOfA = rng() < 0.5 ? 'left' : 'right';
+    const sideOfA = childRng() < 0.5 ? 'left' : 'right';
 
     // Continuous uniform draw on [1, 2) seconds, independently per trial -
     // matches Experiment_Simsom_LWL.m's Parameters.ISI = [1, 2]. Rounded to
@@ -130,14 +159,14 @@ function generateSessionPlan(childId, allPairs, options = {}) {
     // digits of a float are noise: the browser's own timer resolution is
     // coarser than that.
     //
-    // Drawn unconditionally, then discarded on attention-getter trials,
-    // where the AG's own Post_wait stands in for the ISI (see
-    // frames.js's buildTrialGroup). Drawing first and discarding after
-    // keeps one draw per trial, so the RNG stream - and therefore every
-    // child's pair order, AG schedule and side assignments - is unaffected
-    // by whether a given trial happens to carry an AG.
+    // Drawn unconditionally from childRng, then discarded on
+    // attention-getter trials, where the AG's own Post_wait stands in for
+    // the ISI (see frames.js's buildTrialGroup). Drawing first and
+    // discarding after keeps exactly one childRng draw per trial, so the
+    // image-trial stream stays independent of which trials the session's
+    // AG schedule happens to land on.
     const isiDraw =
-      Math.round((isiRange[0] + rng() * (isiRange[1] - isiRange[0])) * 1000) / 1000;
+      Math.round((isiRange[0] + childRng() * (isiRange[1] - isiRange[0])) * 1000) / 1000;
     const isiSeconds = attentionGetter ? null : isiDraw;
 
     plan.push({

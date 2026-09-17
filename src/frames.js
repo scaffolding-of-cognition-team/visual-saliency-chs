@@ -144,20 +144,27 @@ function buildAttentionGetterFrame(attentionGetter) {
   };
 }
 
-// Brackets the trial block with one session-level recorder. Both frames
-// show a spinning attention-getter shape while the webcam connects /
-// uploads, so the child has something to look at instead of a blank
-// screen - these are the only two frames in the block whose duration is
-// network-dependent, and they sit outside every measured trial.
+// Brackets the trial block with one session-level recorder. These are the
+// only two frames in the block whose duration is network-dependent, and
+// they sit outside every measured trial.
+//
+// Deliberately NO `image`/`video` placeholder. An earlier version showed a
+// spinning AG shape here to give the child something to look at, but it
+// reads as a stray, half-second attention getter immediately before the
+// real ones - confusing, and it pre-empts the first AG.
+//
+// `waitForVideoMessage` must also be a NON-EMPTY string. The frame's
+// template is `{{#if waitForVideoMessage}} ... {{else}} establishing video
+// connection / please wait... {{/if}}`, and '' is falsy in Handlebars, so
+// passing an empty string does not blank the text - it shows the built-in
+// default instead. Same trap on the stop frame's waitForUploadMessage.
 function buildStartRecordingFrame() {
   return {
     id: 'start-session-recording',
     kind: 'exp-lookit-start-recording',
-    image: stimulusUrl('AG_stimuli', 'star.png'),
-    imageAnimation: 'spin',
     backgroundColor: BACKGROUND_COLOR,
     displayFullscreen: true,
-    waitForVideoMessage: '',
+    waitForVideoMessage: 'Getting the study ready, please wait...',
   };
 }
 
@@ -165,8 +172,6 @@ function buildStopRecordingFrame() {
   return {
     id: 'stop-session-recording',
     kind: 'exp-lookit-stop-recording',
-    image: stimulusUrl('AG_stimuli', 'star.png'),
-    imageAnimation: 'spin',
     backgroundColor: BACKGROUND_COLOR,
     displayFullscreen: true,
     sessionMaxUploadSeconds: SESSION_MAX_UPLOAD_SECONDS,
