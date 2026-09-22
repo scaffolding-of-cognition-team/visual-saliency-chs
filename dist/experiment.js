@@ -11,17 +11,38 @@ function generateProtocol(child, pastSessions) {
 // require()/module.exports lines and concatenates files, relying on each
 // file's own top-level bindings surviving into the flattened script.
 
-// How many pairs each child sees. This equals the full pair inventory
-// (pairs.js: 15 unordered object-token pairs x 4 familiarity combos = 60),
-// so every child sees every pair exactly once, in their own seeded random
-// order - complete within-child coverage rather than a random subset.
-// Changing this below 60 silently turns it back into a subset design.
+// How many trials each child sees. The inventory is 120 (pairs.js: 15
+// token pairs x 4 familiarity combos x 2 target assignments), so a child
+// sees half of it - but a BALANCED half, not a random subset: all 60
+// distinct image pairs appear exactly once, with the target role split
+// evenly within each token pair (chooseBalancedHalf in randomization.js).
+// Changing this below 60 breaks that coverage.
 const NUM_TRIALS = 60;
 
-// Matches GenerateTrials_Simsom_LWL.m's ImageTime exactly (the MATLAB
-// window included a spoken label at +0.5s; we've dropped the label but
-// kept the full window, per go-ahead).
+// Matches GenerateTrials_Simsom_LWL.m's ImageTime exactly.
 const TRIAL_IMAGE_SECONDS = 6;
+
+// Every image trial plays a spoken label - "Look at the ball!" - naming
+// one of the two images. This is the target/lure manipulation: the
+// inventory doubles from 60 to 120 because either token can be named.
+//
+// TIMING. The clips in LABEL_AUDIO_SUBFOLDER are PRE-PADDED WITH SILENCE
+// by scripts/make_label_assets.py so that the NOUN begins exactly
+// LABEL_NOUN_ONSET_SECONDS after the clip starts. Since
+// exp-lookit-images-audio starts its audio and shows its images in the
+// same synchronous block (startTrial -> playAudio, showImages), that is
+// also the offset from image onset, which is what looking-while-listening
+// analysis time-locks to. The carrier phrase therefore begins ~0.67s
+// earlier, around 2.33s, and the clip finishes by ~3.8s - comfortably
+// inside the 6s trial, leaving a full 3s post-naming window.
+//
+// Changing this constant alone does NOTHING: the delay lives in the audio
+// files. Re-run scripts/make_label_assets.py, which reads its own copy of
+// the value (TARGET_NOUN_ONSET) and reports the achieved onset per clip.
+// Note MATLAB placed the label at +0.5s; 3s is a deliberate change, to
+// buy a clean pre-naming baseline.
+const LABEL_AUDIO_SUBFOLDER = 'Label_audio';
+const LABEL_NOUN_ONSET_SECONDS = 3;
 
 // Matches Experiment_Simsom_LWL.m's Parameters.ISI = [1, 2] (uniform
 // random blank-screen gap between trials).
@@ -128,25 +149,34 @@ const TRIAL_IMAGE_SUBFOLDER = 'Toys';
 const IMG_BASE_URL = 'https://github.com/scaffolding-of-cognition-team/visual-saliency-chs/raw/main/img/';
 
 // ---- src/pairs.js ----
-// Fixed inventory of the 60 unique image pairs, derived from the same
+// Fixed inventory of the 120 unique trial types, derived from the same
 // within-category factorial as GenerateTrials_Simsom_LWL.m, restricted to
 // the objects category (the body-part category has been dropped from this
 // study entirely):
 //
 //   6 object tokens, all unordered token pairs (6 choose 2 = 15),
 //   x4 familiarity combinations per token pair (FF, UU, and the two mixed
-//     F/U assignments, which are genuinely different images) = 60 pairs.
+//     F/U assignments, which are genuinely different images) = 60 image
+//     pairs ("cells"),
+//   x2 target assignments (either token can be the one named) = 120.
 //
-// The MATLAB code gets to its own inventory via a different route: it builds
-// *ordered* (target, lure) token pairs x4 familiarity combos, which
-// double-count each unordered image pair once per direction (target=A/lure=B
-// and target=B/lure=A land on the same two images). Once the spoken label -
-// and the target/lure role it created - is dropped, only the unordered pair
-// survives, so the objects half of MATLAB's 240 raw slots (120) halves to
-// these 60. Same inventory, no label.
+// The spoken label is what makes the last factor real. Without it the two
+// target assignments land on an identical screen and collapse to one
+// trial type - which is why this file returned 60 pairs while the label
+// was dropped. With "Look at the ball!" playing on every trial, target
+// and lure are different roles for the same two images, so the ordered
+// pair is the trial type, exactly as in the MATLAB original.
 //
-// 60 pairs is exactly NUM_TRIALS (config.js), so every child sees the
-// complete inventory once - see randomization.js.
+// The same 120 can be indexed two ways, and both views are carried on
+// every pair object because different consumers want different ones:
+//
+//   by SCREEN        cellID (60) x target assignment (2)
+//   by ORDERED PAIR  orderedPairID (30) x targetLureFamiliarity (4)
+//
+// The second is GenerateTrials_Simsom_LWL.m's own structure
+// (Stimuli.Pairs{pairing}{counterbalance}), and it is what
+// chooseSessionTrials in randomization.js counterbalances over: all 30
+// pairings present per child, 2 of the 4 familiarity variants each.
 
 const TOKENS = ['car', 'ball', 'blocks', 'keys', 'fridge', 'drawer'];
 
@@ -156,20 +186,30 @@ function imageFilename(familiarity, token) {
   return `${familiarity}_${token}.png`;
 }
 
-// Canonical pairID: tokenLow-tokenHigh-famOfLowfamOfHigh, tokens sorted
-// alphabetically so the ID is stable regardless of trial-time side
-// assignment. e.g. "ball-blocks-FU" -> imageA = F_ball.png (the "low"
-// token), imageB = U_blocks.png (the "high" token). Side (sideOfA) is
-// decided per trial by randomization.js, not baked into the ID.
+// Three nested ids, each used by a different consumer:
 //
-// There is no longer a category segment in the ID (it used to read
-// "toys-ball-blocks-FU"): with body parts gone there is only one category,
-// so the segment carried no information.
+//   tokenPairID  "ball-blocks"              - the 15 token pairings.
+//                                             the unordered view; see
+//                                             orderedPairID below for the
+//                                             one the sequence is built on.
+//   cellID       "ball-blocks-FU"           - the 60 distinct SCREENS.
+//                                             Every child sees each one
+//                                             exactly once.
+//   pairID       "ball-blocks-FU-target-ball" - the 120 trial types, and
+//                                             what gets spliced into the
+//                                             Lookit frame id.
+//
+// Tokens are sorted alphabetically within a pair so ids are stable
+// regardless of trial-time side assignment: imageA is always the
+// alphabetically-lower token, imageB the higher, and which SIDE each one
+// lands on is decided per trial by randomization.js (sideOfA).
 //
 // Dash-only (no underscores): pairID gets spliced directly into Lookit
 // frame ids (frames.js), and Lookit frame ids may only contain letters,
 // numbers, and dashes - an underscore anywhere in one produces a silent
-// console-only validation error with no on-screen message.
+// console-only validation error with no on-screen message. This is also
+// why the target is encoded as "-target-ball" rather than a "_" or ":"
+// separator.
 function getAllPairs() {
   const pairs = [];
   const sortedTokens = [...TOKENS].sort();
@@ -178,14 +218,51 @@ function getAllPairs() {
     for (let j = i + 1; j < sortedTokens.length; j++) {
       const tokenLow = sortedTokens[i];
       const tokenHigh = sortedTokens[j];
+      const tokenPairID = `${tokenLow}-${tokenHigh}`;
 
       for (const famLow of FAMILIARITIES) {
         for (const famHigh of FAMILIARITIES) {
-          pairs.push({
-            pairID: `${tokenLow}-${tokenHigh}-${famLow}${famHigh}`,
-            imageA: imageFilename(famLow, tokenLow),
-            imageB: imageFilename(famHigh, tokenHigh),
-          });
+          const cellID = `${tokenPairID}-${famLow}${famHigh}`;
+
+          // Both target assignments for this screen, low-token first so
+          // emission order is deterministic given the seed rather than
+          // dependent on iteration order.
+          for (const targetToken of [tokenLow, tokenHigh]) {
+            const targetIsLow = targetToken === tokenLow;
+            pairs.push({
+              pairID: `${cellID}-target-${targetToken}`,
+              cellID,
+              tokenPairID,
+              // "FF" / "FU" / "UF" / "UU" - familiarity of the LOW token
+              // then the HIGH token. Screen-level view; the sequence
+              // builder uses targetLureFamiliarity instead.
+              familiarityCombo: `${famLow}${famHigh}`,
+              // The MATLAB parameterization: the 30 ordered (target,
+              // lure) token pairings, each with 4 (targetFam, lureFam)
+              // counterbalance variants. Same 120 trial types as the
+              // screen-based view above, re-indexed - a trial type is
+              // (target token, target familiarity, lure token, lure
+              // familiarity) either way, and 6x2x5x2 = 15x4x2 = 120.
+              // GenerateTrials_Simsom_LWL.m builds Stimuli.Pairs on
+              // exactly this grouping, so the counterbalancing in
+              // randomization.js works on it directly.
+              orderedPairID: `${targetToken}-to-${targetIsLow ? tokenHigh : tokenLow}`,
+              targetLureFamiliarity: targetIsLow ? `${famLow}${famHigh}` : `${famHigh}${famLow}`,
+              // Familiarity of the NAMED image and of the distractor.
+              // These, not famLow/famHigh, are what the analysis cares
+              // about, and what chooseSessionTrials balances.
+              targetFamiliarity: targetIsLow ? famLow : famHigh,
+              lureFamiliarity: targetIsLow ? famHigh : famLow,
+              imageA: imageFilename(famLow, tokenLow),
+              imageB: imageFilename(famHigh, tokenHigh),
+              targetToken,
+              lureToken: targetToken === tokenLow ? tokenHigh : tokenLow,
+              // Which of the two image slots is the named one. Recorded
+              // so the analysis does not have to re-derive it from the
+              // filename, and so frames.js can tag the image ids.
+              targetImage: targetToken === tokenLow ? 'imageA' : 'imageB',
+            });
+          }
         }
       }
     }
@@ -263,6 +340,14 @@ function pickOne(list, rng) {
   return list[Math.floor(rng() * list.length)];
 }
 
+// Local copy of frames.js's helper - these two files are concatenated by
+// scripts/build.js into one flat script, so a second top-level `function
+// oppositeSide` would be a redeclaration. Kept as a const arrow instead:
+// same name, but build.js emits src/*.js before protocol.js and the
+// duplicate would only surface at load time, which is exactly the class
+// of silent failure the load check exists to catch.
+const flipSide = (side) => (side === 'left' ? 'right' : 'left');
+
 // Shuffled-bag ("deck") sampler: deal a shuffled copy of `items` one at a
 // time, reshuffle once the bag is empty. Sampling WITHOUT replacement
 // within each bag is what stops the clumping that plain IID draws produce.
@@ -332,6 +417,110 @@ function makeAttentionGetterSampler(rng) {
   };
 }
 
+// Builds the child's 60-trial sequence out of the 120-type inventory,
+// following GenerateTrials_Simsom_LWL.m's counterbalancing structure.
+//
+// MATLAB's scheme, in its own terms: Stimuli.Pairs is indexed by the 30
+// ordered (target, lure) token pairings, each holding 4 counterbalance
+// variants - the (targetFamiliarity, lureFamiliarity) combinations. It
+// then emits BLOCKS. One block = all 30 pairings, each contributing ONE
+// variant, shuffled. `counterbalance_matrix(pair, :) = randperm(4)` picks
+// a fresh variant order per pairing, so block k takes each pairing's k-th
+// variant, and 4 consecutive blocks exhaust the inventory.
+//
+// This session is 2 of those blocks: 30 pairings x 2 variants = 60
+// trials. So every child sees all 30 target->lure pairings exactly twice,
+// with two DIFFERENT familiarity variants, and the two instances of a
+// pairing always land in different halves of the session - MATLAB's block
+// structure is what spaces them, and it is reproduced here rather than
+// flattening everything into one 60-long shuffle.
+//
+// WHICH 2 of the 4 variants, and how the two DIRECTIONS of a token pair
+// relate. MATLAB takes the first 2 of a randperm - a uniform random
+// 2-subset, all 6 equally likely, chosen independently for every pairing.
+// Two constraints are imposed on top of that, both to buy balance a
+// 2-block session cannot get the way MATLAB does (by completing all 4):
+//
+//  1. Each pairing takes a COMPLEMENTARY pair of variants, either
+//
+//         {target F + lure F,  target U + lure U}     ("matched")
+//         {target F + lure U,  target U + lure F}     ("mixed")
+//
+//     so it contributes one familiar and one unfamiliar target, and one
+//     familiar and one unfamiliar lure. Only 2 of the 6 possible
+//     2-subsets do this; uniform-over-6 left familiar-target trials
+//     swinging 19-40 out of 60.
+//
+//  2. The two directions of a token pair take OPPOSITE groups - if
+//     ball->blocks is matched, blocks->ball is mixed. Letting them choose
+//     independently (the literal MATLAB reading) keeps target familiarity
+//     balanced but lets the four target x lure familiarity CELLS swing
+//     from 5 to 25 out of 60, because a pairing contributes 2 cells from
+//     one diagonal and the split across 30 pairings is then binomial.
+//     Opposing them makes every token pair contribute exactly one trial
+//     to each cell: 15/15/15/15, every child.
+//
+//     It also restores complete SCREEN coverage as a side effect. The
+//     matched direction uses screens FF and UU, the mixed one uses FU and
+//     UF, so all 4 screens of the token pair appear exactly once - where
+//     independent choice showed 2 screens twice and 2 never (only ~45 of
+//     the 60 distinct screens per child).
+function chooseSessionTrials(allPairs, rng) {
+  // tokenPairID -> orderedPairID -> targetLureFamiliarity -> pair
+  const byTokenPair = new Map();
+  for (const pair of allPairs) {
+    if (!byTokenPair.has(pair.tokenPairID)) {
+      byTokenPair.set(pair.tokenPairID, new Map());
+    }
+    const directions = byTokenPair.get(pair.tokenPairID);
+    if (!directions.has(pair.orderedPairID)) {
+      directions.set(pair.orderedPairID, new Map());
+    }
+    directions.get(pair.orderedPairID).set(pair.targetLureFamiliarity, pair);
+  }
+
+  const MATCHED = ['FF', 'UU'];
+  const MIXED = ['FU', 'UF'];
+
+  // Sorted so iteration order is the seed's business, not the Map's.
+  const tokenPairIDs = [...byTokenPair.keys()].sort();
+  const blocks = [[], []];
+
+  for (const tokenPairID of tokenPairIDs) {
+    const directions = byTokenPair.get(tokenPairID);
+    const directionIDs = [...directions.keys()].sort();
+    if (directionIDs.length !== 2) {
+      throw new Error(`Token pair ${tokenPairID} has ${directionIDs.length} directions, expected 2`);
+    }
+
+    // One coin flip decides which direction is matched; the other is
+    // mixed. Constraint 2 above.
+    const matchedFirst = rng() < 0.5;
+    const groups = matchedFirst ? [MATCHED, MIXED] : [MIXED, MATCHED];
+
+    directionIDs.forEach((directionID, index) => {
+      const variants = directions.get(directionID);
+      if (variants.size !== 4) {
+        throw new Error(`Pairing ${directionID} has ${variants.size} variants, expected 4`);
+      }
+      const group = groups[index];
+      // A further flip per direction so that which of the group's two
+      // variants lands in block 1 is not fixed by 'FF' < 'UU' - otherwise
+      // every child's first half would hold every familiar-target trial.
+      const flip = rng() < 0.5;
+      blocks[0].push(variants.get(group[flip ? 1 : 0]));
+      blocks[1].push(variants.get(group[flip ? 0 : 1]));
+    });
+  }
+
+  // Shuffle within each block, then concatenate. Deliberately NOT a
+  // global shuffle of all 60: the block structure is what guarantees a
+  // pairing's two trials fall in different halves of the session. (They
+  // can still be adjacent ACROSS the seam - last of block 1, first of
+  // block 2 - which is true of MATLAB's blocks too.)
+  return [...shuffle(blocks[0], rng), ...shuffle(blocks[1], rng)];
+}
+
 // Returns an ordered array of trial-unit plans:
 //   { pairID, imageA, imageB, sideOfA, attentionGetter, isiSeconds }
 // Exactly one of attentionGetter / isiSeconds is non-null per trial: an AG
@@ -371,16 +560,18 @@ function generateSessionPlan(seeds, allPairs, options = {}) {
   const childRng = createRng(childSeed);
   const sessionRng = createRng(sessionSeed);
   const buildAttentionGetter = makeAttentionGetterSampler(sessionRng);
+  // Balanced within child: see the targetSide note in the trial loop.
+  const drawTargetSide = makeBagSampler(['left', 'right'], childRng, { avoidImmediateRepeat: false });
 
-  // Seeded permutation of the whole pair inventory, take the first N. With
-  // numTrials === allPairs.length (60 = 60, the intended configuration)
-  // the slice is a no-op and this is complete coverage: every child sees
-  // every pair exactly once, only the order and side assignment differ
-  // between children. That is the full-shuffle-within-a-complete-block step
-  // GenerateTrials_Simsom_LWL.m does, now at the level of a single session.
-  // The slice is kept so a smaller numTrials (e.g. for a pilot) still
-  // yields a uniform random subset rather than throwing.
-  const chosenPairs = shuffle(allPairs, childRng).slice(0, numTrials);
+  // Already ordered (two shuffled blocks), so no global shuffle here -
+  // see chooseSessionTrials. Drawn from childRng, so a reload reproduces
+  // the same trials for the same child.
+  //
+  // chooseSessionTrials returns exactly 60. The slice is kept so a
+  // smaller numTrials (e.g. for a pilot) still works, but note it then
+  // takes a prefix, which eats into block 2 and breaks the "every pairing
+  // twice" guarantee.
+  const chosenPairs = chooseSessionTrials(allPairs, childRng).slice(0, numTrials);
 
   let trialsSinceLastAG = 0;
   const plan = [];
@@ -404,7 +595,22 @@ function generateSessionPlan(seeds, allPairs, options = {}) {
       trialsSinceLastAG = 0;
     }
 
-    const sideOfA = childRng() < 0.5 ? 'left' : 'right';
+    // TARGET side is what gets balanced, and sideOfA is derived from it -
+    // not the other way round. Drawing sideOfA directly (as this did,
+    // matching MATLAB's is_AG_right = randi([0,1])) leaves target side
+    // IID, which was harmless while there was no target but is not now:
+    // simulated over 3,000 children it put the target on the left a mean
+    // of 30.0/60 times but with a per-child range of 17-41, so 15% of
+    // children fell outside 25-35. Combined with an individual side bias
+    // that is a within-child confound between target role and side.
+    //
+    // The 2-item shuffled bag deals exactly 30 left and 30 right per
+    // 60-trial session, with avoidImmediateRepeat off for the same reason
+    // as the AG's side (see makeBagSampler): banning repeats on a 2-level
+    // factor forces strict L/R/L/R alternation, which is predictable to
+    // the infant - worse than the occasional doubled side. Runs cap at 2.
+    const targetSide = drawTargetSide();
+    const sideOfA = pair.targetImage === 'imageA' ? targetSide : flipSide(targetSide);
 
     // Continuous uniform draw on [1, 2) seconds, independently per trial -
     // matches Experiment_Simsom_LWL.m's Parameters.ISI = [1, 2]. Rounded to
@@ -425,8 +631,17 @@ function generateSessionPlan(seeds, allPairs, options = {}) {
 
     plan.push({
       pairID: pair.pairID,
+      cellID: pair.cellID,
       imageA: pair.imageA,
       imageB: pair.imageB,
+      targetToken: pair.targetToken,
+      lureToken: pair.lureToken,
+      targetImage: pair.targetImage,
+      familiarityCombo: pair.familiarityCombo,
+      targetFamiliarity: pair.targetFamiliarity,
+      lureFamiliarity: pair.lureFamiliarity,
+      orderedPairID: pair.orderedPairID,
+      targetLureFamiliarity: pair.targetLureFamiliarity,
       sideOfA,
       attentionGetter,
       isiSeconds,
@@ -444,8 +659,9 @@ function generateSessionPlan(seeds, allPairs, options = {}) {
 // docs (lookit.readthedocs.io/projects/frameplayer) before writing this:
 //
 // - exp-lookit-images-audio: test trials AND the blank inter-trial
-//   interval (empty images array). Per your decision, images only, no
-//   trial audio, duration driven by durationSeconds. Positioning uses
+//   interval (empty images array). Test trials carry the spoken label as
+//   the frame's `audio`; the ISI has none. Duration is driven by
+//   durationSeconds in both cases, NOT by audio length. Positioning uses
 //   images[].left/width/top/height (percentages), NOT the position:
 //   'left'/'right' preset - those presets don't reproduce MATLAB's actual
 //   spacing (see TRIAL_IMAGE_* constants in config.js, derived from
@@ -627,6 +843,22 @@ function buildTrialImageFrame(trial) {
 
   return {
     id: `trial-${trial.pairID}`,
+    // The spoken label, naming one of the two images. The silence that
+    // places the noun at LABEL_NOUN_ONSET_SECONDS is baked into the file
+    // (config.js, scripts/make_label_assets.py) - there is no audio-delay
+    // property on this frame to do it at runtime; `displayDelayMs` exists
+    // but applies to images only.
+    //
+    // The [{src, type}] form takes an absolute URL because `audio` is in
+    // this frame's assetsToExpand list, same as the AG frame's video. The
+    // frame's own `durationSeconds` still ends the trial at exactly 6s;
+    // the clip runs out around 3.8s, so it never gates anything.
+    audio: [
+      {
+        src: stimulusUrl(LABEL_AUDIO_SUBFOLDER, `label-${trial.targetToken}.mp3`),
+        type: 'audio/mp3',
+      },
+    ],
     images: [
       {
         id: 'imageA',
@@ -653,7 +885,10 @@ function buildTrialImageFrame(trial) {
     // the exact on-screen time. See the RECORDING note at the top.
     doRecording: false,
     // pairID/sideOfA are carried in the frame id and image ids so they're
-    // recoverable from exported session data without a side channel.
+    // recoverable from exported session data without a side channel. The
+    // pairID now ends in "-target-<token>", so which image was named is
+    // recoverable the same way - as is the label URL, which EFP records
+    // as `audioPlayed`.
   };
 }
 
@@ -762,22 +997,12 @@ function buildTrialFrames(plan) {
 //                      confirmation box.
 const ESCAPE_PAUSE_EXIT_TRANSCRIPT_BLOCK = {
   text:
-    'At any time during the study, you can pause it by pressing the space bar. You will see a "Study paused" ' +
+    'You can pause the study at any time by pressing the space bar. You will see a "Study paused" ' +
     'message; press the space bar again when you are ready to start back up. The study also pauses on its own ' +
     'if you leave full screen, and the message will ask you to return to full screen first. \n\n' +
     'To stop the study early, press the escape key. That pauses the study and brings up a box in the top right ' +
     'hand corner. You can press "Continue" if you think your child would like to keep going, or "Exit" if you ' +
     'or your child wants to stop the study early.',
-};
-
-const ESCAPE_PAUSE_EXIT_SETUP_NOTE = {
-  text:
-    '<u>NOTE:</u> To pause at any point, press the <b>space bar</b>, then press it again to resume. The study ' +
-    'also pauses by itself if you leave full screen - just return to full screen and press the space bar to ' +
-    "start back up. To end the study early, press the 'esc' key and choose 'exit' in the box at the top right " +
-    'corner, which will then fast forward you to the end of the experiment. Please pause the study only in ' +
-    'rare cases, such as your child becoming too fussy to continue or someone coming in and distracting your ' +
-    'child.',
 };
 
 const VIDEO_CONFIG = {
@@ -794,8 +1019,7 @@ const VIDEO_CONSENT = {
   institution: 'Stanford University',
   PIContact: 'Dr. Cameron Ellis at (650) 308-6130',
   purpose:
-    'Your child is invited to participate in a research study on baby cognition. The aim of this research is to ' +
-    'investigate how babies see, learn, remember, and pay attention.',
+    'Your child is invited to participate in a research study on infant cognition. The aim of this research is to investigate how infants see, learn, remember, and pay attention. ',
   procedures:
     'With your permission, your child’s face and gaze will be video recorded while they are presented with a ' +
     'variety of stimuli. We are interested in which stimuli your child engages with for longer periods of time. ' +
@@ -808,14 +1032,20 @@ const VIDEO_CONSENT = {
     'participating.',
   voluntary_participation: '',
   payment:
-    'As a token of appreciation for your child’s participation in this 15 minute study, we will send you a ' +
+    'As a token of appreciation for your child’s participation, we will send you a ' +
     'digital code to a $5 e-gift ' +
     'card. To be eligible, your child must fall within the age range, you will need to submit a valid consent ' +
     'statement, and your child’s face must be visible during the consent process. After you have finished the ' +
     'study, we will message you with a digital code to the e-gift card within a week. We will still send you an ' +
     'e-gift card in the event you and your child cannot finish the study or you choose to withdraw at any time. ' +
     'We cannot and do not guarantee or promise that you and your child will receive any benefits from this study.',
-  datause: '',
+  // Renders as a paragraph at the END of the consent form's "How we use
+  // your data" section, right after the template's boilerplate
+  // ("...whether siblings tend to respond similarly... family demographic
+  // survey data."). consent-template005/template.hbs wraps it in
+  // {{#if datause}}, so '' omits the paragraph entirely - which is what
+  // this used to be.
+  datause: 'With your permission, the recordings will be used for analysis.',
   include_databrary: true,
   additional_video_privacy_statement: '',
   gdpr: false,
@@ -851,7 +1081,7 @@ const WELCOME_INSTRUCTIONS = {
     {
       text:
         'This study will take at most 15 minutes of your time, including set up and debrief. Your child needs to ' +
-        'be present for about 9 minutes, all in one stretch near the end.',
+        'be present for about 9 minutes.',
     },
     { text: '\n<u>Here are our estimates for how long each part of this study will take, in order:</u>' },
     {
@@ -939,14 +1169,15 @@ const STUDY_INTRO_VIDEO = {
       text:
         'Then we will show your child two images, which we call an “experimental trial.” These images are ' +
         'naturalistic photos of everyday objects, like blocks, cars, or keys. ' +
-        // `Your child may also hear a label referring to one of the images, such as "Look at the blocks!" ` +
+        'Halfway through each trial, your child will hear a label naming one of the two images, such as ' +
+        '"Look at the blocks!" ' +
         'When your child is watching one of these trials, we will measure how long they want to look at each image on the screen.',
     },
     {
       text:
         'The experiment will start by showing a picture of an attention getter, followed by two objects, side by ' +
         'side. Throughout the study, your child will continue to see attention-getters with various colorful shapes and sounds. This is so we can make sure ' +
-        'they are looking at the screen throughout the entire experiment. Each experiment trial, that is the ones with the images, lasts about '+
+        'they are looking at the screen throughout the entire experiment. Each experiment trial, that is the ones with the images and the label, lasts about '+
         'six seconds. Next, we’ll show another trial with two images side by side for another six seconds. '
     },
     {
@@ -958,8 +1189,8 @@ const STUDY_INTRO_VIDEO = {
       text:
         'Together, the attention getter video and the experimental trials take about 8 minutes. ' +
         'After about 8 minutes, the study will end and the videos will stop automatically. ' +
-        'You can pause or stop the study at any time by pressing the escape key. ' +
-        'Please note, while the attention getter has sound, the experiment trials do not have any sound.',
+        'Please note that both the attention getters and the experiment trials have sound, so please keep your ' +
+        'volume up throughout.',
     },
     ESCAPE_PAUSE_EXIT_TRANSCRIPT_BLOCK,
   ],
@@ -1022,7 +1253,7 @@ const FINAL_REMINDERS = {
       listblocks: [
         {
           text:
-            "During the study, you can set your baby up in a high chair and stand or sit behind them. You can " +
+            "Now, you can set your baby up in a high chair and stand or sit behind them. You can " +
             'also sit in front of the computer with your child on your lap if you think they would prefer that ' +
             "arrangement. During the study, try to keep your child's body oriented towards the screen so they " +
             'can look at it if they want to.',
@@ -1080,7 +1311,6 @@ const FINAL_SETUP_INSTRUCTIONS = {
             "view of your child's face and their eyes. <b>Before you start the study, try to make sure that your " +
             'face is not present in the camera.</b>',
         },
-        ESCAPE_PAUSE_EXIT_SETUP_NOTE,
       ],
     },
     {

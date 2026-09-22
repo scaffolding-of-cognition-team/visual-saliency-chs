@@ -6,17 +6,38 @@
 // require()/module.exports lines and concatenates files, relying on each
 // file's own top-level bindings surviving into the flattened script.
 
-// How many pairs each child sees. This equals the full pair inventory
-// (pairs.js: 15 unordered object-token pairs x 4 familiarity combos = 60),
-// so every child sees every pair exactly once, in their own seeded random
-// order - complete within-child coverage rather than a random subset.
-// Changing this below 60 silently turns it back into a subset design.
+// How many trials each child sees. The inventory is 120 (pairs.js: 15
+// token pairs x 4 familiarity combos x 2 target assignments), so a child
+// sees half of it - but a BALANCED half, not a random subset: all 60
+// distinct image pairs appear exactly once, with the target role split
+// evenly within each token pair (chooseBalancedHalf in randomization.js).
+// Changing this below 60 breaks that coverage.
 const NUM_TRIALS = 60;
 
-// Matches GenerateTrials_Simsom_LWL.m's ImageTime exactly (the MATLAB
-// window included a spoken label at +0.5s; we've dropped the label but
-// kept the full window, per go-ahead).
+// Matches GenerateTrials_Simsom_LWL.m's ImageTime exactly.
 const TRIAL_IMAGE_SECONDS = 6;
+
+// Every image trial plays a spoken label - "Look at the ball!" - naming
+// one of the two images. This is the target/lure manipulation: the
+// inventory doubles from 60 to 120 because either token can be named.
+//
+// TIMING. The clips in LABEL_AUDIO_SUBFOLDER are PRE-PADDED WITH SILENCE
+// by scripts/make_label_assets.py so that the NOUN begins exactly
+// LABEL_NOUN_ONSET_SECONDS after the clip starts. Since
+// exp-lookit-images-audio starts its audio and shows its images in the
+// same synchronous block (startTrial -> playAudio, showImages), that is
+// also the offset from image onset, which is what looking-while-listening
+// analysis time-locks to. The carrier phrase therefore begins ~0.67s
+// earlier, around 2.33s, and the clip finishes by ~3.8s - comfortably
+// inside the 6s trial, leaving a full 3s post-naming window.
+//
+// Changing this constant alone does NOTHING: the delay lives in the audio
+// files. Re-run scripts/make_label_assets.py, which reads its own copy of
+// the value (TARGET_NOUN_ONSET) and reports the achieved onset per clip.
+// Note MATLAB placed the label at +0.5s; 3s is a deliberate change, to
+// buy a clean pre-naming baseline.
+const LABEL_AUDIO_SUBFOLDER = 'Label_audio';
+const LABEL_NOUN_ONSET_SECONDS = 3;
 
 // Matches Experiment_Simsom_LWL.m's Parameters.ISI = [1, 2] (uniform
 // random blank-screen gap between trials).
@@ -125,6 +146,8 @@ const IMG_BASE_URL = 'https://github.com/scaffolding-of-cognition-team/visual-sa
 module.exports = {
   NUM_TRIALS,
   TRIAL_IMAGE_SECONDS,
+  LABEL_AUDIO_SUBFOLDER,
+  LABEL_NOUN_ONSET_SECONDS,
   ISI_SECONDS_RANGE,
   AG_PROBABILITY_BY_GAP,
   AG_SHAPES,

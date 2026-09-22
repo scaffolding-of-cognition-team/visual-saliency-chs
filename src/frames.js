@@ -5,8 +5,9 @@
 // docs (lookit.readthedocs.io/projects/frameplayer) before writing this:
 //
 // - exp-lookit-images-audio: test trials AND the blank inter-trial
-//   interval (empty images array). Per your decision, images only, no
-//   trial audio, duration driven by durationSeconds. Positioning uses
+//   interval (empty images array). Test trials carry the spoken label as
+//   the frame's `audio`; the ISI has none. Duration is driven by
+//   durationSeconds in both cases, NOT by audio length. Positioning uses
 //   images[].left/width/top/height (percentages), NOT the position:
 //   'left'/'right' preset - those presets don't reproduce MATLAB's actual
 //   spacing (see TRIAL_IMAGE_* constants in config.js, derived from
@@ -71,6 +72,7 @@
 
 const {
   TRIAL_IMAGE_SECONDS,
+  LABEL_AUDIO_SUBFOLDER,
   AG_VIDEO_SUBFOLDER,
   SESSION_MAX_UPLOAD_SECONDS,
   STIMULI_BASE_URL,
@@ -201,6 +203,22 @@ function buildTrialImageFrame(trial) {
 
   return {
     id: `trial-${trial.pairID}`,
+    // The spoken label, naming one of the two images. The silence that
+    // places the noun at LABEL_NOUN_ONSET_SECONDS is baked into the file
+    // (config.js, scripts/make_label_assets.py) - there is no audio-delay
+    // property on this frame to do it at runtime; `displayDelayMs` exists
+    // but applies to images only.
+    //
+    // The [{src, type}] form takes an absolute URL because `audio` is in
+    // this frame's assetsToExpand list, same as the AG frame's video. The
+    // frame's own `durationSeconds` still ends the trial at exactly 6s;
+    // the clip runs out around 3.8s, so it never gates anything.
+    audio: [
+      {
+        src: stimulusUrl(LABEL_AUDIO_SUBFOLDER, `label-${trial.targetToken}.mp3`),
+        type: 'audio/mp3',
+      },
+    ],
     images: [
       {
         id: 'imageA',
@@ -227,7 +245,10 @@ function buildTrialImageFrame(trial) {
     // the exact on-screen time. See the RECORDING note at the top.
     doRecording: false,
     // pairID/sideOfA are carried in the frame id and image ids so they're
-    // recoverable from exported session data without a side channel.
+    // recoverable from exported session data without a side channel. The
+    // pairID now ends in "-target-<token>", so which image was named is
+    // recoverable the same way - as is the label URL, which EFP records
+    // as `audioPlayed`.
   };
 }
 

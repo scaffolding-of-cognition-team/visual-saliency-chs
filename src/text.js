@@ -18,22 +18,12 @@ const { IMG_BASE_URL } = require('./config');
 //                      confirmation box.
 const ESCAPE_PAUSE_EXIT_TRANSCRIPT_BLOCK = {
   text:
-    'At any time during the study, you can pause it by pressing the space bar. You will see a "Study paused" ' +
+    'You can pause the study at any time by pressing the space bar. You will see a "Study paused" ' +
     'message; press the space bar again when you are ready to start back up. The study also pauses on its own ' +
     'if you leave full screen, and the message will ask you to return to full screen first. \n\n' +
     'To stop the study early, press the escape key. That pauses the study and brings up a box in the top right ' +
     'hand corner. You can press "Continue" if you think your child would like to keep going, or "Exit" if you ' +
     'or your child wants to stop the study early.',
-};
-
-const ESCAPE_PAUSE_EXIT_SETUP_NOTE = {
-  text:
-    '<u>NOTE:</u> To pause at any point, press the <b>space bar</b>, then press it again to resume. The study ' +
-    'also pauses by itself if you leave full screen - just return to full screen and press the space bar to ' +
-    "start back up. To end the study early, press the 'esc' key and choose 'exit' in the box at the top right " +
-    'corner, which will then fast forward you to the end of the experiment. Please pause the study only in ' +
-    'rare cases, such as your child becoming too fussy to continue or someone coming in and distracting your ' +
-    'child.',
 };
 
 const VIDEO_CONFIG = {
@@ -50,8 +40,7 @@ const VIDEO_CONSENT = {
   institution: 'Stanford University',
   PIContact: 'Dr. Cameron Ellis at (650) 308-6130',
   purpose:
-    'Your child is invited to participate in a research study on baby cognition. The aim of this research is to ' +
-    'investigate how babies see, learn, remember, and pay attention.',
+    'Your child is invited to participate in a research study on infant cognition. The aim of this research is to investigate how infants see, learn, remember, and pay attention. ',
   procedures:
     'With your permission, your child’s face and gaze will be video recorded while they are presented with a ' +
     'variety of stimuli. We are interested in which stimuli your child engages with for longer periods of time. ' +
@@ -64,14 +53,20 @@ const VIDEO_CONSENT = {
     'participating.',
   voluntary_participation: '',
   payment:
-    'As a token of appreciation for your child’s participation in this 15 minute study, we will send you a ' +
+    'As a token of appreciation for your child’s participation, we will send you a ' +
     'digital code to a $5 e-gift ' +
     'card. To be eligible, your child must fall within the age range, you will need to submit a valid consent ' +
     'statement, and your child’s face must be visible during the consent process. After you have finished the ' +
     'study, we will message you with a digital code to the e-gift card within a week. We will still send you an ' +
     'e-gift card in the event you and your child cannot finish the study or you choose to withdraw at any time. ' +
     'We cannot and do not guarantee or promise that you and your child will receive any benefits from this study.',
-  datause: '',
+  // Renders as a paragraph at the END of the consent form's "How we use
+  // your data" section, right after the template's boilerplate
+  // ("...whether siblings tend to respond similarly... family demographic
+  // survey data."). consent-template005/template.hbs wraps it in
+  // {{#if datause}}, so '' omits the paragraph entirely - which is what
+  // this used to be.
+  datause: 'With your permission, the recordings will be used for analysis.',
   include_databrary: true,
   additional_video_privacy_statement: '',
   gdpr: false,
@@ -107,7 +102,7 @@ const WELCOME_INSTRUCTIONS = {
     {
       text:
         'This study will take at most 15 minutes of your time, including set up and debrief. Your child needs to ' +
-        'be present for about 9 minutes, all in one stretch near the end.',
+        'be present for about 9 minutes.',
     },
     { text: '\n<u>Here are our estimates for how long each part of this study will take, in order:</u>' },
     {
@@ -195,14 +190,15 @@ const STUDY_INTRO_VIDEO = {
       text:
         'Then we will show your child two images, which we call an “experimental trial.” These images are ' +
         'naturalistic photos of everyday objects, like blocks, cars, or keys. ' +
-        // `Your child may also hear a label referring to one of the images, such as "Look at the blocks!" ` +
+        'Halfway through each trial, your child will hear a label naming one of the two images, such as ' +
+        '"Look at the blocks!" ' +
         'When your child is watching one of these trials, we will measure how long they want to look at each image on the screen.',
     },
     {
       text:
         'The experiment will start by showing a picture of an attention getter, followed by two objects, side by ' +
         'side. Throughout the study, your child will continue to see attention-getters with various colorful shapes and sounds. This is so we can make sure ' +
-        'they are looking at the screen throughout the entire experiment. Each experiment trial, that is the ones with the images, lasts about '+
+        'they are looking at the screen throughout the entire experiment. Each experiment trial, that is the ones with the images and the label, lasts about '+
         'six seconds. Next, we’ll show another trial with two images side by side for another six seconds. '
     },
     {
@@ -214,8 +210,8 @@ const STUDY_INTRO_VIDEO = {
       text:
         'Together, the attention getter video and the experimental trials take about 8 minutes. ' +
         'After about 8 minutes, the study will end and the videos will stop automatically. ' +
-        'You can pause or stop the study at any time by pressing the escape key. ' +
-        'Please note, while the attention getter has sound, the experiment trials do not have any sound.',
+        'Please note that both the attention getters and the experiment trials have sound, so please keep your ' +
+        'volume up throughout.',
     },
     ESCAPE_PAUSE_EXIT_TRANSCRIPT_BLOCK,
   ],
@@ -278,7 +274,7 @@ const FINAL_REMINDERS = {
       listblocks: [
         {
           text:
-            "During the study, you can set your baby up in a high chair and stand or sit behind them. You can " +
+            "Now, you can set your baby up in a high chair and stand or sit behind them. You can " +
             'also sit in front of the computer with your child on your lap if you think they would prefer that ' +
             "arrangement. During the study, try to keep your child's body oriented towards the screen so they " +
             'can look at it if they want to.',
@@ -336,7 +332,6 @@ const FINAL_SETUP_INSTRUCTIONS = {
             "view of your child's face and their eyes. <b>Before you start the study, try to make sure that your " +
             'face is not present in the camera.</b>',
         },
-        ESCAPE_PAUSE_EXIT_SETUP_NOTE,
       ],
     },
     {

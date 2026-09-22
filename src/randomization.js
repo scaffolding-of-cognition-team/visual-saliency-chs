@@ -67,6 +67,14 @@ function pickOne(list, rng) {
   return list[Math.floor(rng() * list.length)];
 }
 
+// Local copy of frames.js's helper - these two files are concatenated by
+// scripts/build.js into one flat script, so a second top-level `function
+// oppositeSide` would be a redeclaration. Kept as a const arrow instead:
+// same name, but build.js emits src/*.js before protocol.js and the
+// duplicate would only surface at load time, which is exactly the class
+// of silent failure the load check exists to catch.
+const flipSide = (side) => (side === 'left' ? 'right' : 'left');
+
 // Shuffled-bag ("deck") sampler: deal a shuffled copy of `items` one at a
 // time, reshuffle once the bag is empty. Sampling WITHOUT replacement
 // within each bag is what stops the clumping that plain IID draws produce.
@@ -136,6 +144,110 @@ function makeAttentionGetterSampler(rng) {
   };
 }
 
+// Builds the child's 60-trial sequence out of the 120-type inventory,
+// following GenerateTrials_Simsom_LWL.m's counterbalancing structure.
+//
+// MATLAB's scheme, in its own terms: Stimuli.Pairs is indexed by the 30
+// ordered (target, lure) token pairings, each holding 4 counterbalance
+// variants - the (targetFamiliarity, lureFamiliarity) combinations. It
+// then emits BLOCKS. One block = all 30 pairings, each contributing ONE
+// variant, shuffled. `counterbalance_matrix(pair, :) = randperm(4)` picks
+// a fresh variant order per pairing, so block k takes each pairing's k-th
+// variant, and 4 consecutive blocks exhaust the inventory.
+//
+// This session is 2 of those blocks: 30 pairings x 2 variants = 60
+// trials. So every child sees all 30 target->lure pairings exactly twice,
+// with two DIFFERENT familiarity variants, and the two instances of a
+// pairing always land in different halves of the session - MATLAB's block
+// structure is what spaces them, and it is reproduced here rather than
+// flattening everything into one 60-long shuffle.
+//
+// WHICH 2 of the 4 variants, and how the two DIRECTIONS of a token pair
+// relate. MATLAB takes the first 2 of a randperm - a uniform random
+// 2-subset, all 6 equally likely, chosen independently for every pairing.
+// Two constraints are imposed on top of that, both to buy balance a
+// 2-block session cannot get the way MATLAB does (by completing all 4):
+//
+//  1. Each pairing takes a COMPLEMENTARY pair of variants, either
+//
+//         {target F + lure F,  target U + lure U}     ("matched")
+//         {target F + lure U,  target U + lure F}     ("mixed")
+//
+//     so it contributes one familiar and one unfamiliar target, and one
+//     familiar and one unfamiliar lure. Only 2 of the 6 possible
+//     2-subsets do this; uniform-over-6 left familiar-target trials
+//     swinging 19-40 out of 60.
+//
+//  2. The two directions of a token pair take OPPOSITE groups - if
+//     ball->blocks is matched, blocks->ball is mixed. Letting them choose
+//     independently (the literal MATLAB reading) keeps target familiarity
+//     balanced but lets the four target x lure familiarity CELLS swing
+//     from 5 to 25 out of 60, because a pairing contributes 2 cells from
+//     one diagonal and the split across 30 pairings is then binomial.
+//     Opposing them makes every token pair contribute exactly one trial
+//     to each cell: 15/15/15/15, every child.
+//
+//     It also restores complete SCREEN coverage as a side effect. The
+//     matched direction uses screens FF and UU, the mixed one uses FU and
+//     UF, so all 4 screens of the token pair appear exactly once - where
+//     independent choice showed 2 screens twice and 2 never (only ~45 of
+//     the 60 distinct screens per child).
+function chooseSessionTrials(allPairs, rng) {
+  // tokenPairID -> orderedPairID -> targetLureFamiliarity -> pair
+  const byTokenPair = new Map();
+  for (const pair of allPairs) {
+    if (!byTokenPair.has(pair.tokenPairID)) {
+      byTokenPair.set(pair.tokenPairID, new Map());
+    }
+    const directions = byTokenPair.get(pair.tokenPairID);
+    if (!directions.has(pair.orderedPairID)) {
+      directions.set(pair.orderedPairID, new Map());
+    }
+    directions.get(pair.orderedPairID).set(pair.targetLureFamiliarity, pair);
+  }
+
+  const MATCHED = ['FF', 'UU'];
+  const MIXED = ['FU', 'UF'];
+
+  // Sorted so iteration order is the seed's business, not the Map's.
+  const tokenPairIDs = [...byTokenPair.keys()].sort();
+  const blocks = [[], []];
+
+  for (const tokenPairID of tokenPairIDs) {
+    const directions = byTokenPair.get(tokenPairID);
+    const directionIDs = [...directions.keys()].sort();
+    if (directionIDs.length !== 2) {
+      throw new Error(`Token pair ${tokenPairID} has ${directionIDs.length} directions, expected 2`);
+    }
+
+    // One coin flip decides which direction is matched; the other is
+    // mixed. Constraint 2 above.
+    const matchedFirst = rng() < 0.5;
+    const groups = matchedFirst ? [MATCHED, MIXED] : [MIXED, MATCHED];
+
+    directionIDs.forEach((directionID, index) => {
+      const variants = directions.get(directionID);
+      if (variants.size !== 4) {
+        throw new Error(`Pairing ${directionID} has ${variants.size} variants, expected 4`);
+      }
+      const group = groups[index];
+      // A further flip per direction so that which of the group's two
+      // variants lands in block 1 is not fixed by 'FF' < 'UU' - otherwise
+      // every child's first half would hold every familiar-target trial.
+      const flip = rng() < 0.5;
+      blocks[0].push(variants.get(group[flip ? 1 : 0]));
+      blocks[1].push(variants.get(group[flip ? 0 : 1]));
+    });
+  }
+
+  // Shuffle within each block, then concatenate. Deliberately NOT a
+  // global shuffle of all 60: the block structure is what guarantees a
+  // pairing's two trials fall in different halves of the session. (They
+  // can still be adjacent ACROSS the seam - last of block 1, first of
+  // block 2 - which is true of MATLAB's blocks too.)
+  return [...shuffle(blocks[0], rng), ...shuffle(blocks[1], rng)];
+}
+
 // Returns an ordered array of trial-unit plans:
 //   { pairID, imageA, imageB, sideOfA, attentionGetter, isiSeconds }
 // Exactly one of attentionGetter / isiSeconds is non-null per trial: an AG
@@ -175,16 +287,18 @@ function generateSessionPlan(seeds, allPairs, options = {}) {
   const childRng = createRng(childSeed);
   const sessionRng = createRng(sessionSeed);
   const buildAttentionGetter = makeAttentionGetterSampler(sessionRng);
+  // Balanced within child: see the targetSide note in the trial loop.
+  const drawTargetSide = makeBagSampler(['left', 'right'], childRng, { avoidImmediateRepeat: false });
 
-  // Seeded permutation of the whole pair inventory, take the first N. With
-  // numTrials === allPairs.length (60 = 60, the intended configuration)
-  // the slice is a no-op and this is complete coverage: every child sees
-  // every pair exactly once, only the order and side assignment differ
-  // between children. That is the full-shuffle-within-a-complete-block step
-  // GenerateTrials_Simsom_LWL.m does, now at the level of a single session.
-  // The slice is kept so a smaller numTrials (e.g. for a pilot) still
-  // yields a uniform random subset rather than throwing.
-  const chosenPairs = shuffle(allPairs, childRng).slice(0, numTrials);
+  // Already ordered (two shuffled blocks), so no global shuffle here -
+  // see chooseSessionTrials. Drawn from childRng, so a reload reproduces
+  // the same trials for the same child.
+  //
+  // chooseSessionTrials returns exactly 60. The slice is kept so a
+  // smaller numTrials (e.g. for a pilot) still works, but note it then
+  // takes a prefix, which eats into block 2 and breaks the "every pairing
+  // twice" guarantee.
+  const chosenPairs = chooseSessionTrials(allPairs, childRng).slice(0, numTrials);
 
   let trialsSinceLastAG = 0;
   const plan = [];
@@ -208,7 +322,22 @@ function generateSessionPlan(seeds, allPairs, options = {}) {
       trialsSinceLastAG = 0;
     }
 
-    const sideOfA = childRng() < 0.5 ? 'left' : 'right';
+    // TARGET side is what gets balanced, and sideOfA is derived from it -
+    // not the other way round. Drawing sideOfA directly (as this did,
+    // matching MATLAB's is_AG_right = randi([0,1])) leaves target side
+    // IID, which was harmless while there was no target but is not now:
+    // simulated over 3,000 children it put the target on the left a mean
+    // of 30.0/60 times but with a per-child range of 17-41, so 15% of
+    // children fell outside 25-35. Combined with an individual side bias
+    // that is a within-child confound between target role and side.
+    //
+    // The 2-item shuffled bag deals exactly 30 left and 30 right per
+    // 60-trial session, with avoidImmediateRepeat off for the same reason
+    // as the AG's side (see makeBagSampler): banning repeats on a 2-level
+    // factor forces strict L/R/L/R alternation, which is predictable to
+    // the infant - worse than the occasional doubled side. Runs cap at 2.
+    const targetSide = drawTargetSide();
+    const sideOfA = pair.targetImage === 'imageA' ? targetSide : flipSide(targetSide);
 
     // Continuous uniform draw on [1, 2) seconds, independently per trial -
     // matches Experiment_Simsom_LWL.m's Parameters.ISI = [1, 2]. Rounded to
@@ -229,8 +358,17 @@ function generateSessionPlan(seeds, allPairs, options = {}) {
 
     plan.push({
       pairID: pair.pairID,
+      cellID: pair.cellID,
       imageA: pair.imageA,
       imageB: pair.imageB,
+      targetToken: pair.targetToken,
+      lureToken: pair.lureToken,
+      targetImage: pair.targetImage,
+      familiarityCombo: pair.familiarityCombo,
+      targetFamiliarity: pair.targetFamiliarity,
+      lureFamiliarity: pair.lureFamiliarity,
+      orderedPairID: pair.orderedPairID,
+      targetLureFamiliarity: pair.targetLureFamiliarity,
       sideOfA,
       attentionGetter,
       isiSeconds,
@@ -240,4 +378,12 @@ function generateSessionPlan(seeds, allPairs, options = {}) {
   return plan;
 }
 
-module.exports = { createRng, shuffle, pickOne, makeBagSampler, makeAttentionGetterSampler, generateSessionPlan };
+module.exports = {
+  createRng,
+  shuffle,
+  pickOne,
+  makeBagSampler,
+  makeAttentionGetterSampler,
+  chooseSessionTrials,
+  generateSessionPlan,
+};
