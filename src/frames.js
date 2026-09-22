@@ -265,6 +265,28 @@ function buildTrialGroup(trial, index) {
         autoProceed: true,
         showProgressBar: false,
         showCursor: false,
+        // MUST be set explicitly. The pause-unpause mixin defaults this to
+        // true, but exp-lookit-images-audio overrides it back to false as a
+        // component default (`pauseWhenExitingFullscreen: false, //
+        // pause-unpause mixin`), so every image trial and every ISI frame
+        // silently ran on through a fullscreen exit. exp-lookit-video (the
+        // attention getters) does NOT override it, so AG frames were
+        // already pausing - which is why the behaviour looked intermittent
+        // rather than absent.
+        //
+        // This also fixes the Escape key. exp-player's keydown handler
+        // calls exitFullscreen() and then showConfirmationDialog() (the
+        // Continue/Exit box in the corner that the study copy describes),
+        // but with no pause the trials kept advancing behind that dialog
+        // while the parent decided. Now the exit-fullscreen half of that
+        // handler pauses the trial too.
+        pauseWhenExitingFullscreen: true,
+        // Default pause cover is WHITE - a full-screen white flash in a
+        // dim-background infant study, mid-trial. Matching the study
+        // background keeps the pause visually quiet; the mixin picks the
+        // pause text colour for contrast itself (textColorForBackground),
+        // so dark here is safe.
+        pauseColor: BACKGROUND_COLOR,
       },
     },
   };

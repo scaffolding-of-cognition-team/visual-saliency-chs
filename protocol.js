@@ -95,14 +95,14 @@ function generateProtocol(child, pastSessions) {
   const { frames: trialFrames, sequence: trialSequence } = buildTrialFrames(plan);
 
   const frames = {
-    'video-config': VIDEO_CONFIG,
-    'video-consent': VIDEO_CONSENT,
     'welcome-instructions': WELCOME_INSTRUCTIONS,
+    'video-config': VIDEO_CONFIG,
     'setup-instructions-1': SETUP_INSTRUCTIONS_1,
     'study-intro-video': STUDY_INTRO_VIDEO,
     'setup-instructions': SETUP_INSTRUCTIONS,
     'final-reminders': FINAL_REMINDERS,
     'final-setup-instructions': FINAL_SETUP_INSTRUCTIONS,
+    'video-consent': VIDEO_CONSENT,
     'webcam-display-check': WEBCAM_DISPLAY_CHECK,
     ...trialFrames,
     'study-outro': STUDY_OUTRO,
@@ -110,15 +110,27 @@ function generateProtocol(child, pastSessions) {
     'study-debrief': STUDY_DEBRIEF,
   };
 
+  // ORDER NOTE: consent sits late, immediately after the "go get your
+  // child" frame, so the child only has to be present once - for consent
+  // plus the trials - instead of arriving for consent, leaving for ~4
+  // minutes of parent-only setup, and coming back. Lookit's only hard
+  // requirement is that consent precede any video recording, in particular
+  // the session recorder (see exp-lookit-video-consent's "Do not use with
+  // session recording"). Nothing before 'video-consent' here records or
+  // collects study data: video-config is camera setup, the rest are text /
+  // instruction-video frames, and 'webcam-display-check' has
+  // startRecordingAutomatically: false and now runs after consent anyway.
+  // The session recorder starts inside the trial block (frames.js's
+  // exp-lookit-start-recording), well after consent.
   const sequence = [
     'welcome-instructions',
     'video-config',
-    'video-consent',
     'setup-instructions-1',
     'study-intro-video',
     'setup-instructions',
     'final-reminders',
     'final-setup-instructions',
+    'video-consent',
     'webcam-display-check',
     ...trialSequence,
     'study-outro',

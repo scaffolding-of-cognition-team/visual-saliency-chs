@@ -67,15 +67,72 @@ function pickOne(list, rng) {
   return list[Math.floor(rng() * list.length)];
 }
 
-// Mirrors the MATLAB draws one for one: is_AG_right = randi([0,1]), then
-// datasample over shapes, sounds and motions. Same order, same count of
-// draws, so the seeded stream stays interpretable.
-function buildAttentionGetter(rng) {
-  return {
-    side: rng() < 0.5 ? 'left' : 'right',
-    shape: pickOne(AG_SHAPES, rng),
-    sound: pickOne(AG_SOUNDS, rng),
-    motion: pickOne(AG_MOTIONS, rng),
+// Shuffled-bag ("deck") sampler: deal a shuffled copy of `items` one at a
+// time, reshuffle once the bag is empty. Sampling WITHOUT replacement
+// within each bag is what stops the clumping that plain IID draws produce.
+//
+// Why this replaced pickOne for attention-getter properties: MATLAB's
+// `datasample` draws IID with replacement, and with only 5 shapes / 5
+// sounds and ~15 AGs in a session, that means a 20% chance that any two
+// consecutive AGs share a shape, a 37% chance a session contains the same
+// shape three times in a row, and ~2.7 back-to-back same-sound pairs per
+// session (simulated over 5000 sessions). Statistically unremarkable,
+// visibly repetitive to a parent watching, and an AG that has stopped
+// being novel has stopped doing its one job.
+//
+// avoidImmediateRepeat guards the seam between bags - without it, the last
+// item of one bag and the first of the next can still match. Implemented
+// by swapping the offending first element with a random later one, which
+// is cheaper than reshuffling until it passes and keeps every item
+// reachable. Left OFF for `side`, where 2 items + no repeats would force
+// strict L/R/L/R alternation: perfectly predictable AG locations are worse
+// for a frame whose purpose is a known-gaze-direction reference than the
+// occasional repeated side.
+//
+// Marginal frequencies stay uniform; what changes is the spacing. Each
+// shape/sound now appears ~3 times per session and each motion ~5, spread
+// out rather than clumped.
+function makeBagSampler(items, rng, options = {}) {
+  const avoidImmediateRepeat = options.avoidImmediateRepeat !== false;
+  let bag = [];
+  let last = null;
+
+  return function draw() {
+    if (bag.length === 0) {
+      bag = shuffle(items, rng);
+      if (avoidImmediateRepeat && items.length > 1 && bag[0] === last) {
+        const swapWith = 1 + Math.floor(rng() * (bag.length - 1));
+        [bag[0], bag[swapWith]] = [bag[swapWith], bag[0]];
+      }
+    }
+    last = bag.shift();
+    return last;
+  };
+}
+
+// One sampler per factor, so shape / sound / motion / side each cycle
+// independently - the factorial (5 x 5 x 3 x 2 = 150 combinations) is
+// preserved, and two AGs sharing a shape will still differ in sound and
+// motion.
+//
+// Draw ORDER is unchanged from the MATLAB original (is_AG_right =
+// randi([0,1]), then datasample over shapes, sounds, motions); the draw
+// COUNT is not, since a reshuffle consumes extra rng values. That only
+// affects sessionRng, which nothing else depends on - childRng, and so
+// every image trial, is untouched (see the two-stream note below).
+function makeAttentionGetterSampler(rng) {
+  const drawSide = makeBagSampler(['left', 'right'], rng, { avoidImmediateRepeat: false });
+  const drawShape = makeBagSampler(AG_SHAPES, rng);
+  const drawSound = makeBagSampler(AG_SOUNDS, rng);
+  const drawMotion = makeBagSampler(AG_MOTIONS, rng);
+
+  return function buildAttentionGetter() {
+    return {
+      side: drawSide(),
+      shape: drawShape(),
+      sound: drawSound(),
+      motion: drawMotion(),
+    };
   };
 }
 
@@ -117,6 +174,7 @@ function generateSessionPlan(seeds, allPairs, options = {}) {
 
   const childRng = createRng(childSeed);
   const sessionRng = createRng(sessionSeed);
+  const buildAttentionGetter = makeAttentionGetterSampler(sessionRng);
 
   // Seeded permutation of the whole pair inventory, take the first N. With
   // numTrials === allPairs.length (60 = 60, the intended configuration)
@@ -146,7 +204,7 @@ function generateSessionPlan(seeds, allPairs, options = {}) {
 
     let attentionGetter = null;
     if (showAG) {
-      attentionGetter = buildAttentionGetter(sessionRng);
+      attentionGetter = buildAttentionGetter();
       trialsSinceLastAG = 0;
     }
 
@@ -182,4 +240,4 @@ function generateSessionPlan(seeds, allPairs, options = {}) {
   return plan;
 }
 
-module.exports = { createRng, shuffle, pickOne, generateSessionPlan };
+module.exports = { createRng, shuffle, pickOne, makeBagSampler, makeAttentionGetterSampler, generateSessionPlan };

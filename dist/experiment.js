@@ -35,7 +35,9 @@ const AG_PROBABILITY_BY_GAP = [0, 0, 0.25, 0.5, 0.75, 1];
 
 // Attention-getter factorial, matching Parameters.AG.* in the MATLAB
 // config exactly: 5 shapes x 5 sounds x 3 motions x 2 sides = 150 distinct
-// attention getters. 'orbit' is back - it was dropped when the AG was an
+// attention getters. Note the levels below are sampled from shuffled bags,
+// not IID as MATLAB's datasample does - see makeBagSampler in
+// randomization.js for why, and what that does and does not change. 'orbit' is back - it was dropped when the AG was an
 // exp-lookit-calibration frame, whose calibrationImageAnimation only
 // supports 'spin' | 'bounce' | '', but the AG is now pre-rendered video so
 // all three MATLAB motions are available.
@@ -261,15 +263,72 @@ function pickOne(list, rng) {
   return list[Math.floor(rng() * list.length)];
 }
 
-// Mirrors the MATLAB draws one for one: is_AG_right = randi([0,1]), then
-// datasample over shapes, sounds and motions. Same order, same count of
-// draws, so the seeded stream stays interpretable.
-function buildAttentionGetter(rng) {
-  return {
-    side: rng() < 0.5 ? 'left' : 'right',
-    shape: pickOne(AG_SHAPES, rng),
-    sound: pickOne(AG_SOUNDS, rng),
-    motion: pickOne(AG_MOTIONS, rng),
+// Shuffled-bag ("deck") sampler: deal a shuffled copy of `items` one at a
+// time, reshuffle once the bag is empty. Sampling WITHOUT replacement
+// within each bag is what stops the clumping that plain IID draws produce.
+//
+// Why this replaced pickOne for attention-getter properties: MATLAB's
+// `datasample` draws IID with replacement, and with only 5 shapes / 5
+// sounds and ~15 AGs in a session, that means a 20% chance that any two
+// consecutive AGs share a shape, a 37% chance a session contains the same
+// shape three times in a row, and ~2.7 back-to-back same-sound pairs per
+// session (simulated over 5000 sessions). Statistically unremarkable,
+// visibly repetitive to a parent watching, and an AG that has stopped
+// being novel has stopped doing its one job.
+//
+// avoidImmediateRepeat guards the seam between bags - without it, the last
+// item of one bag and the first of the next can still match. Implemented
+// by swapping the offending first element with a random later one, which
+// is cheaper than reshuffling until it passes and keeps every item
+// reachable. Left OFF for `side`, where 2 items + no repeats would force
+// strict L/R/L/R alternation: perfectly predictable AG locations are worse
+// for a frame whose purpose is a known-gaze-direction reference than the
+// occasional repeated side.
+//
+// Marginal frequencies stay uniform; what changes is the spacing. Each
+// shape/sound now appears ~3 times per session and each motion ~5, spread
+// out rather than clumped.
+function makeBagSampler(items, rng, options = {}) {
+  const avoidImmediateRepeat = options.avoidImmediateRepeat !== false;
+  let bag = [];
+  let last = null;
+
+  return function draw() {
+    if (bag.length === 0) {
+      bag = shuffle(items, rng);
+      if (avoidImmediateRepeat && items.length > 1 && bag[0] === last) {
+        const swapWith = 1 + Math.floor(rng() * (bag.length - 1));
+        [bag[0], bag[swapWith]] = [bag[swapWith], bag[0]];
+      }
+    }
+    last = bag.shift();
+    return last;
+  };
+}
+
+// One sampler per factor, so shape / sound / motion / side each cycle
+// independently - the factorial (5 x 5 x 3 x 2 = 150 combinations) is
+// preserved, and two AGs sharing a shape will still differ in sound and
+// motion.
+//
+// Draw ORDER is unchanged from the MATLAB original (is_AG_right =
+// randi([0,1]), then datasample over shapes, sounds, motions); the draw
+// COUNT is not, since a reshuffle consumes extra rng values. That only
+// affects sessionRng, which nothing else depends on - childRng, and so
+// every image trial, is untouched (see the two-stream note below).
+function makeAttentionGetterSampler(rng) {
+  const drawSide = makeBagSampler(['left', 'right'], rng, { avoidImmediateRepeat: false });
+  const drawShape = makeBagSampler(AG_SHAPES, rng);
+  const drawSound = makeBagSampler(AG_SOUNDS, rng);
+  const drawMotion = makeBagSampler(AG_MOTIONS, rng);
+
+  return function buildAttentionGetter() {
+    return {
+      side: drawSide(),
+      shape: drawShape(),
+      sound: drawSound(),
+      motion: drawMotion(),
+    };
   };
 }
 
@@ -311,6 +370,7 @@ function generateSessionPlan(seeds, allPairs, options = {}) {
 
   const childRng = createRng(childSeed);
   const sessionRng = createRng(sessionSeed);
+  const buildAttentionGetter = makeAttentionGetterSampler(sessionRng);
 
   // Seeded permutation of the whole pair inventory, take the first N. With
   // numTrials === allPairs.length (60 = 60, the intended configuration)
@@ -340,7 +400,7 @@ function generateSessionPlan(seeds, allPairs, options = {}) {
 
     let attentionGetter = null;
     if (showAG) {
-      attentionGetter = buildAttentionGetter(sessionRng);
+      attentionGetter = buildAttentionGetter();
       trialsSinceLastAG = 0;
     }
 
@@ -631,6 +691,28 @@ function buildTrialGroup(trial, index) {
         autoProceed: true,
         showProgressBar: false,
         showCursor: false,
+        // MUST be set explicitly. The pause-unpause mixin defaults this to
+        // true, but exp-lookit-images-audio overrides it back to false as a
+        // component default (`pauseWhenExitingFullscreen: false, //
+        // pause-unpause mixin`), so every image trial and every ISI frame
+        // silently ran on through a fullscreen exit. exp-lookit-video (the
+        // attention getters) does NOT override it, so AG frames were
+        // already pausing - which is why the behaviour looked intermittent
+        // rather than absent.
+        //
+        // This also fixes the Escape key. exp-player's keydown handler
+        // calls exitFullscreen() and then showConfirmationDialog() (the
+        // Continue/Exit box in the corner that the study copy describes),
+        // but with no pause the trials kept advancing behind that dialog
+        // while the parent decided. Now the exit-fullscreen half of that
+        // handler pauses the trial too.
+        pauseWhenExitingFullscreen: true,
+        // Default pause cover is WHITE - a full-screen white flash in a
+        // dim-background infant study, mid-trial. Matching the study
+        // background keeps the pause visually quiet; the mixin picks the
+        // pause text colour for contrast itself (textColorForBackground),
+        // so dark here is safe.
+        pauseColor: BACKGROUND_COLOR,
       },
     },
   };
@@ -665,20 +747,37 @@ function buildTrialFrames(plan) {
 // replace.
 
 
+// Pause / exit copy. Three separate behaviours, all real, all
+// parent-visible, so all three are spelled out rather than collapsed into
+// "press escape":
+//
+//   space bar       -> pause-unpause mixin's pauseKey (default ' ').
+//                      Pause screen reads "Study paused / Press space to
+//                      resume", so the copy has to name the space bar or
+//                      the on-screen instruction comes out of nowhere.
+//   leaving         -> pauseWhenExitingFullscreen (set in frames.js).
+//   fullscreen         Pause screen reads "Please return to fullscreen".
+//   escape          -> exp-player's own keydown handler: exits fullscreen
+//                      (hence also pauses) AND shows the Continue/Exit
+//                      confirmation box.
 const ESCAPE_PAUSE_EXIT_TRANSCRIPT_BLOCK = {
   text:
-    'At any time during the study, you can pause the video or stop the study early by pressing the escape key. ' +
-    'If you do so, you will see this box in the top right hand corner. You can press the "Continue" key if you ' +
-    'think your child would like to continue the study. You can press the "Exit" key if you or your child wants ' +
-    'to stop the study early.',
+    'At any time during the study, you can pause it by pressing the space bar. You will see a "Study paused" ' +
+    'message; press the space bar again when you are ready to start back up. The study also pauses on its own ' +
+    'if you leave full screen, and the message will ask you to return to full screen first. \n\n' +
+    'To stop the study early, press the escape key. That pauses the study and brings up a box in the top right ' +
+    'hand corner. You can press "Continue" if you think your child would like to keep going, or "Exit" if you ' +
+    'or your child wants to stop the study early.',
 };
 
 const ESCAPE_PAUSE_EXIT_SETUP_NOTE = {
   text:
-    "<u>NOTE:</u> If you need to pause or end the study early, press the 'esc' key. You can exit the study early " +
-    "by selecting the 'exit' option at the top right corner, which will then fast forward you to the end of the " +
-    'experiment. Please pause the study only in rare cases, such as your child becomes too fussy to continue or ' +
-    'someone comes in and distracts your child.',
+    '<u>NOTE:</u> To pause at any point, press the <b>space bar</b>, then press it again to resume. The study ' +
+    'also pauses by itself if you leave full screen - just return to full screen and press the space bar to ' +
+    "start back up. To end the study early, press the 'esc' key and choose 'exit' in the box at the top right " +
+    'corner, which will then fast forward you to the end of the experiment. Please pause the study only in ' +
+    'rare cases, such as your child becoming too fussy to continue or someone coming in and distracting your ' +
+    'child.',
 };
 
 const VIDEO_CONFIG = {
@@ -709,7 +808,8 @@ const VIDEO_CONSENT = {
     'participating.',
   voluntary_participation: '',
   payment:
-    'As a token of appreciation for your child’s participation, we will send you a digital code to a $10 e-gift ' +
+    'As a token of appreciation for your child’s participation in this 15 minute study, we will send you a ' +
+    'digital code to a $5 e-gift ' +
     'card. To be eligible, your child must fall within the age range, you will need to submit a valid consent ' +
     'statement, and your child’s face must be visible during the consent process. After you have finished the ' +
     'study, we will message you with a digital code to the e-gift card within a week. We will still send you an ' +
@@ -750,17 +850,22 @@ const WELCOME_INSTRUCTIONS = {
     { emph: true, title: 'Welcome!', text: 'Thank you for taking the time to participate in our study!' },
     {
       text:
-        'This study will take at most 21 minutes of your time, including set up and debrief. Your child needs to ' +
-        'be present for about 10 minutes.',
+        'This study will take at most 15 minutes of your time, including set up and debrief. Your child needs to ' +
+        'be present for about 9 minutes, all in one stretch near the end.',
     },
-    { text: '\n<u>Here are our estimates for how long each part of this study will take:</u>' },
+    { text: '\n<u>Here are our estimates for how long each part of this study will take, in order:</u>' },
     {
       listblocks: [
-        { text: 'Consent (happening now) <b>[1 minute]</b> - your child <i>must</i> be present when you record the consent video' },
-        { text: 'Introduction and setup <b>[5 minutes]</b> - your child does <i>not</i> need to be present' },
-        { text: 'Experiment <b>[about 10 minutes]</b> - your child <i>must</i> be present' },
-        { text: 'Debrief <b>[5 minutes]</b> - your child does <i>not</i> need to be present' },
+        { text: 'Introduction and setup (happening now) <b>[4 minutes]</b> - your child does <i>not</i> need to be present' },
+        { text: 'Consent <b>[1 minute]</b> - your child <i>must</i> be present when you record the consent video' },
+        { text: 'Experiment <b>[about 8 minutes]</b> - your child <i>must</i> be present' },
+        { text: 'Debrief <b>[2 minutes]</b> - your child does <i>not</i> need to be present' },
       ],
+    },
+    {
+      text:
+        '\nWe have put the setup first so that you can get everything ready before bringing your child over. ' +
+        'We will let you know when it is time to go get them.',
     },
   ],
 };
@@ -818,8 +923,9 @@ const STUDY_INTRO_VIDEO = {
   ],
   introText:
     '<b><u>At this point, your child does not have to be here</u></b>. Feel free to occupy them for the next ' +
-    'few minutes. \n\n Please watch this video for an overview of what will happen during the study. \n(You can ' +
-    'read the transcript to the right if you prefer.)',
+    'few minutes - we will ask you to go get them in about 3 minutes, once the setup is done and just before ' +
+    'we record consent. \n\n Please watch this video for an overview of what will happen during the study. ' +
+    '\n(You can read the transcript to the right if you prefer.)',
     
 // TODO: considering hving this be a separate slide
   transcriptTitle: 'Video Transcript',
@@ -850,8 +956,8 @@ const STUDY_INTRO_VIDEO = {
     },
     {
       text:
-        'Together, the attention getter video and the experimental trials take about 10 minutes. ' +
-        'After about 10 minutes, the study will end and the videos will stop automatically. ' +
+        'Together, the attention getter video and the experimental trials take about 8 minutes. ' +
+        'After about 8 minutes, the study will end and the videos will stop automatically. ' +
         'You can pause or stop the study at any time by pressing the escape key. ' +
         'Please note, while the attention getter has sound, the experiment trials do not have any sound.',
     },
@@ -964,9 +1070,15 @@ const FINAL_SETUP_INSTRUCTIONS = {
         },
         {
           text:
-            'On the next page, you will be able to check the webcam view. Please make sure that the webcam has ' +
-            "a full view of your child's face and their eyes. <b>Before you start the study, try to make sure " +
-            'that your face is not present in the camera.</b>',
+            'On the next page, we will ask for your consent to take part <b>[1 minute]</b>. You will record a ' +
+            "short video of yourself giving consent, and <b>your child's face needs to be visible in that " +
+            'recording</b>, so please have them with you before you continue.',
+        },
+        {
+          text:
+            'After that, you will be able to check the webcam view. Please make sure that the webcam has a full ' +
+            "view of your child's face and their eyes. <b>Before you start the study, try to make sure that your " +
+            'face is not present in the camera.</b>',
         },
         ESCAPE_PAUSE_EXIT_SETUP_NOTE,
       ],
@@ -974,10 +1086,10 @@ const FINAL_SETUP_INSTRUCTIONS = {
     {
       title: 'Ready?',
       emph: true,
-      text: "If your child is set up, go ahead and press the 'Check video!' button.",
+      text: "If your child is with you and set up, go ahead and press the 'Record consent' button.",
     },
   ],
-  nextButtonText: 'Check video!',
+  nextButtonText: 'Record consent',
 };
 
 const WEBCAM_DISPLAY_CHECK = {
@@ -989,7 +1101,14 @@ const WEBCAM_DISPLAY_CHECK = {
   blocks: [
     {
       title: "Last check: Does the video look good? Are your child's eyes visible?",
-      listblocks: [{ text: 'If so, you can go ahead and start the experiment!' }],
+      listblocks: [
+        {
+          text:
+            'Now that consent is recorded, please move back out of the camera view if you were in it, so that ' +
+            "we can see your child's eyes clearly.",
+        },
+        { text: 'If the view looks good, you can go ahead and start the experiment! It takes about 8 minutes.' },
+      ],
     },
   ],
 };
@@ -1001,7 +1120,7 @@ const STUDY_OUTRO = {
     { emph: true, title: 'You and your child have completed the experiment! Awesome job!' },
     {
       text:
-        'To wrap up, we will ask you a few questions that will take at most 5 minutes more. \n\n<b>At this ' +
+        'To wrap up, we will ask you a few questions that will take at most 2 minutes more. \n\n<b>At this ' +
         'point, your child has completed the study and does not need to be present.</b> Feel free to occupy ' +
         'them now before we wrap up.',
     },
@@ -1020,7 +1139,7 @@ const FEEDBACK_SURVEY = {
       properties: {
         email: {
           title:
-            'Please provide your email so we can send your $10 Tango Gift Card. Your email will be exclusively ' +
+            'Please provide your email so we can send your $5 e-gift card. Your email will be exclusively ' +
             'utilized for the purpose of delivering your compensation.',
           type: 'string',
           format: 'email',
@@ -1194,14 +1313,14 @@ const childSeed = getChildSeed(child);
   const { frames: trialFrames, sequence: trialSequence } = buildTrialFrames(plan);
 
   const frames = {
-    'video-config': VIDEO_CONFIG,
-    'video-consent': VIDEO_CONSENT,
     'welcome-instructions': WELCOME_INSTRUCTIONS,
+    'video-config': VIDEO_CONFIG,
     'setup-instructions-1': SETUP_INSTRUCTIONS_1,
     'study-intro-video': STUDY_INTRO_VIDEO,
     'setup-instructions': SETUP_INSTRUCTIONS,
     'final-reminders': FINAL_REMINDERS,
     'final-setup-instructions': FINAL_SETUP_INSTRUCTIONS,
+    'video-consent': VIDEO_CONSENT,
     'webcam-display-check': WEBCAM_DISPLAY_CHECK,
     ...trialFrames,
     'study-outro': STUDY_OUTRO,
@@ -1209,15 +1328,27 @@ const childSeed = getChildSeed(child);
     'study-debrief': STUDY_DEBRIEF,
   };
 
+  // ORDER NOTE: consent sits late, immediately after the "go get your
+  // child" frame, so the child only has to be present once - for consent
+  // plus the trials - instead of arriving for consent, leaving for ~4
+  // minutes of parent-only setup, and coming back. Lookit's only hard
+  // requirement is that consent precede any video recording, in particular
+  // the session recorder (see exp-lookit-video-consent's "Do not use with
+  // session recording"). Nothing before 'video-consent' here records or
+  // collects study data: video-config is camera setup, the rest are text /
+  // instruction-video frames, and 'webcam-display-check' has
+  // startRecordingAutomatically: false and now runs after consent anyway.
+  // The session recorder starts inside the trial block (frames.js's
+  // exp-lookit-start-recording), well after consent.
   const sequence = [
     'welcome-instructions',
     'video-config',
-    'video-consent',
     'setup-instructions-1',
     'study-intro-video',
     'setup-instructions',
     'final-reminders',
     'final-setup-instructions',
+    'video-consent',
     'webcam-display-check',
     ...trialSequence,
     'study-outro',

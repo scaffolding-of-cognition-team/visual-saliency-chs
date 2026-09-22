@@ -30,7 +30,9 @@ const AG_PROBABILITY_BY_GAP = [0, 0, 0.25, 0.5, 0.75, 1];
 
 // Attention-getter factorial, matching Parameters.AG.* in the MATLAB
 // config exactly: 5 shapes x 5 sounds x 3 motions x 2 sides = 150 distinct
-// attention getters. 'orbit' is back - it was dropped when the AG was an
+// attention getters. Note the levels below are sampled from shuffled bags,
+// not IID as MATLAB's datasample does - see makeBagSampler in
+// randomization.js for why, and what that does and does not change. 'orbit' is back - it was dropped when the AG was an
 // exp-lookit-calibration frame, whose calibrationImageAnimation only
 // supports 'spin' | 'bounce' | '', but the AG is now pre-rendered video so
 // all three MATLAB motions are available.
