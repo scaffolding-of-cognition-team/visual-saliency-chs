@@ -27,17 +27,51 @@ begins ~0.67s BEFORE that.
 
 Measuring noun onset
 --------------------
+Two ways, and the script picks whichever applies. If NOUN_ONSETS below is
+filled in, those hand-measured times win and no detection runs at all.
+Otherwise the automatic shared-carrier method is used.
+
+Automatic (shared-carrier sets only).
 The six recordings are concatenations of one shared carrier recording
 ("Look at the...") with a per-token noun, so the clips are sample-identical
 up to the join and diverge after it. That is measurable from the clips
 alone - no isolated word files needed:
 
-  1. Cross-compare every pair of clips and take the earliest point at
+  1. Cross-compare every pair of clips and take the EARLIEST point at
      which any two differ. That is the join (the earliest-onset noun
      starts right there).
   2. Per clip, the acoustic noun onset is the first frame at or after the
      join whose energy clears the silence threshold - which absorbs each
      noun's own few tens of ms of leading silence.
+
+The join is ONE number, not one per clip: there is a single carrier
+recording and each noun is appended to it, so the concatenation point sits
+at the same sample index in all six. What varies per clip is the NOUN
+ONSET, which is step 2's job. Step 1 only has to hand step 2 a starting
+line that is past the carrier.
+
+Why the earliest, and why it needs guarding.
+Pair (a, b) first differs at join + min(lead silence of a, lead silence of
+b), so the minimum over all pairs is join + the smallest lead silence in
+the set - the tightest bound available, and exact whenever any one noun
+starts flush at the join. A median over pairs would instead land at join +
+the median of those per-pair minima, biased LATE, and a join past some
+clip's true noun onset makes step 2 misread that clip.
+
+The minimum's weakness is that it trusts every clip. It takes one file
+exported at a different level to break it: blocks.mp3 in the current set
+peaks at 0.434 where the other five peak at 0.300, and the difference is
+not a scalar gain (correcting for carrier gain still leaves it diverging
+from all five at 0.198s), so its five pairs "diverge" almost immediately
+while the other ten agree on 0.778s. Taking the minimum over all fifteen
+read 0.193s, decided the set had no shared carrier, and refused to build -
+six good recordings failed on the strength of one odd export.
+
+So the median is used ONLY to find that clip, never as the answer: pairs
+sitting far below the consensus identify the deviant file, it is dropped,
+and the minimum is taken over the pairs that remain. One deviant clip
+contributes 5 of 15 pairs and cannot move the median; two contribute 9 and
+can, so the script stops rather than trusting the consensus in that case.
 
 Measured on the current (female-voice) set: shared carrier through
 "Look" 0.065-0.365, "at" 0.495-0.670, "the" 0.785-1.005, join at 1.006s,
@@ -72,6 +106,22 @@ SR = 44100
 TARGET_NOUN_ONSET = 3.0
 
 TOKENS = ["ball", "blocks", "car", "drawer", "fridge", "keys"]
+
+# Hand-measured noun onsets, in seconds from the start of the clip in
+# stimuli/Audio/. Leave EMPTY to use the automatic shared-carrier
+# detection below; fill it in when the recordings are six separate
+# natural utterances, where nothing in the audio marks the noun boundary
+# and detection is impossible. Every token in TOKENS must be present, or
+# the script stops rather than silently mixing the two methods.
+#
+# Re-measure whenever stimuli/Audio/ is re-recorded - these numbers are
+# properties of those specific files, and a stale entry pads the clip to
+# the wrong offset with no visible symptom.
+#
+# Empty on purpose: the current set IS a shared-carrier set, so detection
+# is exact and picks up the ~18ms of real spread between tokens that a
+# single hand-measured value would flatten.
+NOUN_ONSETS = {}
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AUDIO_DIR = os.path.join(REPO, "stimuli", "Audio")
@@ -116,23 +166,44 @@ def find_carrier_join(clips):
     """Seconds at which the shared carrier ends, from the clips alone.
 
     Every clip starts with the same carrier recording, so pairs are
-    sample-identical until one of their nouns begins. The earliest such
-    divergence across all pairs is the concatenation point.
+    sample-identical until one of their nouns begins. Returns the EARLIEST
+    such divergence, plus the names of any clips that diverge from
+    everything far too early to be explained by a noun - those are
+    mis-exported rather than mis-recorded, and are excluded from the
+    estimate. See the module docstring for why the minimum is the right
+    statistic and why the median only screens for outliers.
     """
     peak = max(float(np.abs(c).max()) for c in clips.values())
     threshold = 0.01 * peak
-    earliest = None
     names = sorted(clips)
+    divergences = {}
     for i, a in enumerate(names):
         for b in names[i + 1 :]:
             shorter = min(len(clips[a]), len(clips[b]))
             differing = np.where(np.abs(clips[a][:shorter] - clips[b][:shorter]) > threshold)[0]
             if len(differing) == 0:
                 continue
-            seconds = differing[0] / SR
-            if earliest is None or seconds < earliest:
-                earliest = seconds
-    return earliest
+            divergences[(a, b)] = differing[0] / SR
+
+    if not divergences:
+        return None, []
+
+    # Screening pass only. A clip whose EVERY pair diverges well before
+    # the consensus shares the carrier phrase but not the carrier samples.
+    # Harmless for the energy-based onset scan, which runs per clip - but
+    # it must not be allowed near the minimum below, which it would
+    # dominate.
+    consensus = float(np.median(list(divergences.values())))
+    odd = []
+    for name in names:
+        own = [s for (a, b), s in divergences.items() if name in (a, b)]
+        if own and max(own) < 0.5 * consensus:
+            odd.append(name)
+
+    usable = [s for (a, b), s in divergences.items() if a not in odd and b not in odd]
+    if not usable:
+        return None, odd
+    return min(usable), odd
 
 
 def noun_onset_after(samples, join_seconds):
@@ -189,28 +260,63 @@ def main():
 
     clips = {t: decode(os.path.join(AUDIO_DIR, f"{t}.mp3")) for t in TOKENS}
 
-    join = find_carrier_join(clips)
-    if join is None:
-        sys.exit("All six recordings are identical - check stimuli/Audio/.")
-    if join < 0.30:
-        sys.exit(
-            f"The recordings diverge at {join:.3f}s, too early to be a shared carrier phrase.\n"
-            "This script assumes every clip is the same \"Look at the...\" recording joined to a\n"
-            "per-token noun, which is what lets it locate the noun. If the clips are separate\n"
-            "natural utterances, the noun onsets have to be measured by hand and hard-coded."
-        )
+    if NOUN_ONSETS:
+        absent = [t for t in TOKENS if t not in NOUN_ONSETS]
+        if absent:
+            sys.exit(
+                f"NOUN_ONSETS is filled in but missing: {', '.join(absent)}.\n"
+                "Measure every token or clear the dict entirely - a partial table would\n"
+                "hand-place some clips and auto-detect others, which is never what you want."
+            )
+        # A measurement past the end of its clip means the number belongs
+        # to a different recording set - catch it here, not in the
+        # verification table.
+        for token in TOKENS:
+            if not 0.0 <= NOUN_ONSETS[token] < len(clips[token]) / SR:
+                sys.exit(
+                    f"NOUN_ONSETS[{token!r}] = {NOUN_ONSETS[token]}s falls outside the clip "
+                    f"(0 - {len(clips[token]) / SR:.3f}s). Re-measure against the current "
+                    "stimuli/Audio/."
+                )
+        onsets = {t: float(NOUN_ONSETS[t]) for t in TOKENS}
+        source_note = "hand-measured (NOUN_ONSETS)"
+    else:
+        join, odd = find_carrier_join(clips)
+        if join is None:
+            sys.exit("All six recordings are identical - check stimuli/Audio/.")
+        if len(odd) > 1:
+            sys.exit(
+                f"{len(odd)} clips ({', '.join(odd)}) diverge from every other clip long before "
+                f"the consensus join of {join:.3f}s.\nWith more than one the median is no longer "
+                "trustworthy, so the join cannot be located.\nRe-export them from the same master "
+                "and settings as the rest of stimuli/Audio/."
+            )
+        if odd:
+            print(
+                f"NOTE: {odd[0]}.mp3 shares the carrier PHRASE but not the carrier SAMPLES - it is "
+                f"encoded\n      differently from the other {len(TOKENS) - 1} (check its peak level). "
+                "Its noun onset is still\n      measured correctly below; re-export it when convenient "
+                "so the set is uniform.\n"
+            )
+        if join < 0.30:
+            sys.exit(
+                f"The recordings diverge at {join:.3f}s, too early to be a shared carrier phrase.\n"
+                "This script assumes every clip is the same \"Look at the...\" recording joined to a\n"
+                "per-token noun, which is what lets it locate the noun. If the clips are separate\n"
+                "natural utterances, measure the noun onsets by hand and fill in NOUN_ONSETS."
+            )
 
-    onsets = {t: noun_onset_after(clips[t], join) for t in TOKENS}
-    missing = [t for t, v in onsets.items() if v is None]
-    if missing:
-        sys.exit(f"No speech found after the carrier in: {', '.join(missing)}")
+        onsets = {t: noun_onset_after(clips[t], join) for t in TOKENS}
+        missing = [t for t, v in onsets.items() if v is None]
+        if missing:
+            sys.exit(f"No speech found after the carrier in: {', '.join(missing)}")
+        source_note = f"auto-detected (shared carrier ends at {join:.3f}s)"
 
     print(f"Target noun onset: {TARGET_NOUN_ONSET:.3f}s after image onset")
-    print(f"Shared carrier ends (join): {join:.3f}s\n")
-    print(f"{'token':8} {'noun onset':>11} {'pad':>8} {'lead silence':>13}")
+    print(f"Noun onsets: {source_note}\n")
+    print(f"{'token':8} {'noun onset':>11} {'pad':>8}")
     for token in TOKENS:
-        print(f"{token:8} {onsets[token]:11.3f} {TARGET_NOUN_ONSET - onsets[token]:8.3f} "
-              f"{(onsets[token] - join) * 1000:11.0f}ms")
+        print(f"{token:8} {onsets[token]:11.3f} {TARGET_NOUN_ONSET - onsets[token]:8.3f}")
 
     # Encode, measure the encoder's own added delay, re-encode corrected.
     print("\nEncoding...")
