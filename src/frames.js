@@ -203,19 +203,19 @@ function buildTrialImageFrame(trial) {
 
   return {
     id: `trial-${trial.pairID}`,
-    // The spoken label, naming one of the two images. Plays unmodified
-    // from the recording, starting with the images - so the phrase begins
-    // at image onset and the noun follows ~0.8s later, per token (see the
-    // TIMING note in config.js). This frame has no audio-delay property
-    // anyway; `displayDelayMs` exists but applies to images only.
+    // The spoken label, naming one of the two images. The silence that
+    // places the noun at LABEL_NOUN_ONSET_SECONDS is baked into the file
+    // (config.js, scripts/make_label_assets.py) - there is no audio-delay
+    // property on this frame to do it at runtime; `displayDelayMs` exists
+    // but applies to images only.
     //
     // The [{src, type}] form takes an absolute URL because `audio` is in
     // this frame's assetsToExpand list, same as the AG frame's video. The
     // frame's own `durationSeconds` still ends the trial at exactly 6s;
-    // the clip runs out under 1.7s, so it never gates anything.
+    // the clip runs out around 3.8s, so it never gates anything.
     audio: [
       {
-        src: stimulusUrl(LABEL_AUDIO_SUBFOLDER, `${trial.targetToken}.mp3`),
+        src: stimulusUrl(LABEL_AUDIO_SUBFOLDER, `label-${trial.targetToken}.mp3`),
         type: 'audio/mp3',
       },
     ],

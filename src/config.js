@@ -22,22 +22,26 @@ const TRIAL_IMAGE_SECONDS = 6;
 // one of the two images. This is the target/lure manipulation: the
 // inventory doubles from 60 to 120 because either token can be named.
 //
-// TIMING. The clips play UNMODIFIED, straight from the recordings in
-// LABEL_AUDIO_SUBFOLDER. exp-lookit-images-audio starts its audio and
-// shows its images in the same synchronous block (startTrial ->
-// playAudio, showImages), so audio onset == image onset and the carrier
-// phrase begins immediately. The clips run ~1.5-1.7s inside the 6s trial.
+// TIMING. The clips in LABEL_AUDIO_SUBFOLDER are PRE-PADDED WITH SILENCE
+// by scripts/make_label_assets.py so that the NOUN begins exactly
+// LABEL_NOUN_ONSET_SECONDS after the clip starts. Since
+// exp-lookit-images-audio starts its audio and shows its images in the
+// same synchronous block (startTrial -> playAudio, showImages), that is
+// also the offset from image onset, which is what looking-while-listening
+// analysis time-locks to. On the current recordings the noun starts
+// 0.778-0.796s into the source clip (it is NOT uniform across tokens -
+// that spread is each noun's own leading silence), so the pad is ~2.21s,
+// the carrier begins around 2.21s, and the padded clip finishes by ~3.9s
+// - comfortably inside the 6s trial, leaving a full 3s post-naming
+// window.
 //
-// There is deliberately NO constant here for when the noun is spoken.
-// An earlier version pre-padded each clip with silence so the noun landed
-// at a fixed 3s (scripts/make_label_assets.py, stimuli/Label_audio/); that
-// was dropped along with the pre-naming baseline it bought. The noun onset
-// is now a property of each recording, and it is NOT uniform across tokens
-// - measured on the current set it ranges 0.778-0.796s from clip start.
-// Looking-while-listening analysis time-locks to noun onset, so those
-// per-token values have to be measured off stimuli/Audio/ at analysis
-// time; nothing in the protocol records them.
-const LABEL_AUDIO_SUBFOLDER = 'Audio';
+// Changing this constant alone does NOTHING: the delay lives in the audio
+// files. Re-run scripts/make_label_assets.py, which reads its own copy of
+// the value (TARGET_NOUN_ONSET) and reports the achieved onset per clip.
+// Note MATLAB placed the label at +0.5s; 3s is a deliberate change, to
+// buy a clean pre-naming baseline.
+const LABEL_AUDIO_SUBFOLDER = 'Label_audio';
+const LABEL_NOUN_ONSET_SECONDS = 3;
 
 // Matches Experiment_Simsom_LWL.m's Parameters.ISI = [1, 2] (uniform
 // random blank-screen gap between trials).
@@ -147,6 +151,7 @@ module.exports = {
   NUM_TRIALS,
   TRIAL_IMAGE_SECONDS,
   LABEL_AUDIO_SUBFOLDER,
+  LABEL_NOUN_ONSET_SECONDS,
   ISI_SECONDS_RANGE,
   AG_PROBABILITY_BY_GAP,
   AG_SHAPES,
