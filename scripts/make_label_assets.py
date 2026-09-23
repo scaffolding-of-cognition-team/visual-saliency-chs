@@ -27,20 +27,28 @@ begins ~0.67s BEFORE that.
 
 Measuring noun onset
 --------------------
-stimuli/Audio/<token>.mp3 was built by concatenating
-audio_builds/look_at_the.mp3 + audio_builds/<token>.mp3. This script
-recovers the join point by cross-correlating the isolated word clip
-against the full clip, then adds that word clip's own leading silence to
-get the acoustic noun onset. Measured: the join sits at 0.622s for every
-token and the word clips carry 45-55ms of leading silence, putting noun
-onset at 0.667-0.677s - consistent with the carrier's own speech ending at
-0.663s.
+The six recordings are concatenations of one shared carrier recording
+("Look at the...") with a per-token noun, so the clips are sample-identical
+up to the join and diverge after it. That is measurable from the clips
+alone - no isolated word files needed:
 
-`car` is the exception: audio_builds/car.mp3 is not the isolated word, it
-is a second copy of the full "Look at the car!" sentence, so there is
-nothing to align. It falls back to the mean of the other five and prints a
-warning. Drop a real isolated car recording into audio_builds/ and the
-fallback disappears.
+  1. Cross-compare every pair of clips and take the earliest point at
+     which any two differ. That is the join (the earliest-onset noun
+     starts right there).
+  2. Per clip, the acoustic noun onset is the first frame at or after the
+     join whose energy clears the silence threshold - which absorbs each
+     noun's own few tens of ms of leading silence.
+
+Measured on the current (female-voice) set: shared carrier through
+"Look" 0.065-0.365, "at" 0.495-0.670, "the" 0.785-1.005, join at 1.006s,
+noun onsets 1.006-1.055s.
+
+This replaces an earlier method that cross-correlated the isolated word
+clips in stimuli/Audio/audio_builds/ against the full sentences. That
+folder no longer exists, and the script no longer needs it. If a future
+recording set is NOT built from a shared carrier, step 1 finds the clips
+diverging almost immediately and the script stops with an explanation
+rather than padding everything wrong.
 
 mp3 encoding prepends its own delay (~25ms of silence) to whatever it is
 given, which would push every noun late by that amount. Rather than model
@@ -67,7 +75,6 @@ TOKENS = ["ball", "blocks", "car", "drawer", "fridge", "keys"]
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AUDIO_DIR = os.path.join(REPO, "stimuli", "Audio")
-BUILDS_DIR = os.path.join(AUDIO_DIR, "audio_builds")
 OUT_DIR = os.path.join(REPO, "stimuli", "Label_audio")
 
 # Fraction of a clip's peak envelope counted as speech rather than silence.
@@ -83,15 +90,6 @@ def decode(path):
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg failed on {path}: {result.stderr.decode()}")
     return np.frombuffer(result.stdout, dtype=np.float32).astype(np.float64)
-
-
-def leading_silence(samples):
-    """Seconds before the first frame whose RMS clears SILENCE_FRACTION of peak."""
-    window = int(0.005 * SR)
-    frames = len(samples) // window
-    envelope = np.sqrt((samples[: frames * window].reshape(frames, window) ** 2).mean(axis=1))
-    above = np.where(envelope > SILENCE_FRACTION * envelope.max())[0]
-    return above[0] * window / SR
 
 
 def align(needle, haystack, step=8):
@@ -114,23 +112,56 @@ def align(needle, haystack, step=8):
     return best_lag / SR, best_corr
 
 
-def measure_noun_onset(token):
-    """Acoustic noun onset (seconds) within stimuli/Audio/<token>.mp3, or None."""
-    full = decode(os.path.join(AUDIO_DIR, f"{token}.mp3"))
-    word_path = os.path.join(BUILDS_DIR, f"{token}.mp3")
-    if not os.path.exists(word_path):
-        return None, full
-    word = decode(word_path)
+def find_carrier_join(clips):
+    """Seconds at which the shared carrier ends, from the clips alone.
 
-    # A word clip nearly as long as the full clip is not an isolated word -
-    # it is another copy of the whole sentence (the `car` case).
-    if len(word) > 0.85 * len(full):
-        return None, full
+    Every clip starts with the same carrier recording, so pairs are
+    sample-identical until one of their nouns begins. The earliest such
+    divergence across all pairs is the concatenation point.
+    """
+    peak = max(float(np.abs(c).max()) for c in clips.values())
+    threshold = 0.01 * peak
+    earliest = None
+    names = sorted(clips)
+    for i, a in enumerate(names):
+        for b in names[i + 1 :]:
+            shorter = min(len(clips[a]), len(clips[b]))
+            differing = np.where(np.abs(clips[a][:shorter] - clips[b][:shorter]) > threshold)[0]
+            if len(differing) == 0:
+                continue
+            seconds = differing[0] / SR
+            if earliest is None or seconds < earliest:
+                earliest = seconds
+    return earliest
 
-    lag, corr = align(word, full)
-    if lag is None or corr < 0.9:
-        return None, full
-    return lag + leading_silence(word), full
+
+def noun_onset_after(samples, join_seconds):
+    """First moment at or after the join carrying speech.
+
+    The window is FORWARD-LOOKING and starts exactly at the join: energy
+    at index i is the RMS of samples[i : i+window]. That matters. A
+    centred or backward-looking window straddling the join mixes in the
+    carrier's final syllable, and the scan then returns the join itself
+    for every clip whose "the" has not yet decayed - reporting a noun
+    onset tens of ms early and padding the file short by that much. (Seen:
+    fridge and ball both came back at 1.003s against a 1.006s join, i.e.
+    negative leading silence, which is impossible for a concatenation.)
+
+    Everything at or after the join belongs to the noun file by
+    construction, so a window anchored there reads only the noun.
+    """
+    window = int(0.005 * SR)
+    squared = np.concatenate(([0.0], np.cumsum(samples ** 2)))
+    # RMS over [i, i+window) for every i
+    starts = np.arange(0, len(samples) - window)
+    envelope = np.sqrt((squared[starts + window] - squared[starts]) / window)
+    threshold = SILENCE_FRACTION * envelope.max()
+
+    first = int(np.ceil(join_seconds * SR))
+    for index in range(first, len(envelope)):
+        if envelope[index] > threshold:
+            return index / SR
+    return None
 
 
 def encode(source_path, pad_seconds, out_path):
@@ -156,27 +187,30 @@ def encode(source_path, pad_seconds, out_path):
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
 
-    onsets = {}
-    for token in TOKENS:
-        onset, _ = measure_noun_onset(token)
-        onsets[token] = onset
+    clips = {t: decode(os.path.join(AUDIO_DIR, f"{t}.mp3")) for t in TOKENS}
 
-    measured = [v for v in onsets.values() if v is not None]
-    if not measured:
-        sys.exit("Could not measure noun onset for any token - check stimuli/Audio/audio_builds/.")
-    fallback = float(np.mean(measured))
+    join = find_carrier_join(clips)
+    if join is None:
+        sys.exit("All six recordings are identical - check stimuli/Audio/.")
+    if join < 0.30:
+        sys.exit(
+            f"The recordings diverge at {join:.3f}s, too early to be a shared carrier phrase.\n"
+            "This script assumes every clip is the same \"Look at the...\" recording joined to a\n"
+            "per-token noun, which is what lets it locate the noun. If the clips are separate\n"
+            "natural utterances, the noun onsets have to be measured by hand and hard-coded."
+        )
 
-    print(f"Target noun onset: {TARGET_NOUN_ONSET:.3f}s after image onset\n")
-    print(f"{'token':8} {'noun onset':>11} {'pad':>8}   source")
+    onsets = {t: noun_onset_after(clips[t], join) for t in TOKENS}
+    missing = [t for t, v in onsets.items() if v is None]
+    if missing:
+        sys.exit(f"No speech found after the carrier in: {', '.join(missing)}")
+
+    print(f"Target noun onset: {TARGET_NOUN_ONSET:.3f}s after image onset")
+    print(f"Shared carrier ends (join): {join:.3f}s\n")
+    print(f"{'token':8} {'noun onset':>11} {'pad':>8} {'lead silence':>13}")
     for token in TOKENS:
-        onset = onsets[token]
-        if onset is None:
-            onset = fallback
-            print(f"{token:8} {onset:11.3f} {TARGET_NOUN_ONSET - onset:8.3f}   "
-                  f"FALLBACK (mean of {len(measured)}) - see WARNING below")
-            onsets[token] = onset
-        else:
-            print(f"{token:8} {onset:11.3f} {TARGET_NOUN_ONSET - onset:8.3f}   measured")
+        print(f"{token:8} {onsets[token]:11.3f} {TARGET_NOUN_ONSET - onsets[token]:8.3f} "
+              f"{(onsets[token] - join) * 1000:11.0f}ms")
 
     # Encode, measure the encoder's own added delay, re-encode corrected.
     print("\nEncoding...")
@@ -220,12 +254,6 @@ def main():
         print(f"{token:8} {achieved:9.3f} {error_ms:10.1f} {len(padded)/SR:9.3f}")
 
     print(f"\nWrote {len(TOKENS)} clips to {OUT_DIR} (worst error {worst:.1f}ms)")
-    if any(onsets[t] == fallback and measure_noun_onset(t)[0] is None for t in TOKENS):
-        print("\nWARNING: stimuli/Audio/audio_builds/car.mp3 is a duplicate of the full "
-              "\"Look at the car!\" sentence, not the isolated word, so car's noun onset "
-              "could not be measured and used the mean of the other five instead. Add a "
-              "real isolated recording to remove the estimate.")
-
 
 if __name__ == "__main__":
     main()

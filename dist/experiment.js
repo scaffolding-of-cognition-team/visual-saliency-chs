@@ -11,12 +11,13 @@ function generateProtocol(child, pastSessions) {
 // require()/module.exports lines and concatenates files, relying on each
 // file's own top-level bindings surviving into the flattened script.
 
-// How many trials each child sees. The inventory is 120 (pairs.js: 15
-// token pairs x 4 familiarity combos x 2 target assignments), so a child
-// sees half of it - but a BALANCED half, not a random subset: all 60
-// distinct image pairs appear exactly once, with the target role split
-// evenly within each token pair (chooseBalancedHalf in randomization.js).
-// Changing this below 60 breaks that coverage.
+// How many trials each child sees. The inventory is 120 (pairs.js: 30
+// ordered target-lure pairings x 4 familiarity variants), so a child sees
+// half of it, as two of MATLAB's counterbalancing blocks: all 30 pairings
+// twice, once per half of the session (chooseSessionTrials in
+// randomization.js). Changing this breaks that - a smaller value takes a
+// prefix, which eats into block 2 and drops the second instance of some
+// pairings.
 const NUM_TRIALS = 60;
 
 // Matches GenerateTrials_Simsom_LWL.m's ImageTime exactly.
@@ -32,9 +33,10 @@ const TRIAL_IMAGE_SECONDS = 6;
 // exp-lookit-images-audio starts its audio and shows its images in the
 // same synchronous block (startTrial -> playAudio, showImages), that is
 // also the offset from image onset, which is what looking-while-listening
-// analysis time-locks to. The carrier phrase therefore begins ~0.67s
-// earlier, around 2.33s, and the clip finishes by ~3.8s - comfortably
-// inside the 6s trial, leaving a full 3s post-naming window.
+// analysis time-locks to. On the current (female-voice) recordings the
+// noun starts ~1.0s into the source clip, so the carrier begins around
+// 2.0s and the padded clip finishes by ~4.3s - comfortably inside the 6s
+// trial, leaving a full 3s post-naming window.
 //
 // Changing this constant alone does NOTHING: the delay lives in the audio
 // files. Re-run scripts/make_label_assets.py, which reads its own copy of
