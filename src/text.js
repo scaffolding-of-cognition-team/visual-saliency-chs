@@ -458,14 +458,14 @@ const STUDY_DEBRIEF = {
       { text: '\n' },
       {
         text:
-          'This was a visual preference study on what kinds of pictures infants find most interesting. They ' +
-          'saw different images of early-learned words paired together, and we want to know which image the ' +
-          'look longer at, and if this preference is stable across children.',
+          'This was a visual preference study on what kinds of images infants find most interesting. They ' +
+          'saw different images of early-learned object nouns paired together, and heard a label for one of the images on screen. '+
+          'We want to know which image they look longer at, and if this preference is stable across children.',
       },
       {
         text:
           "We are interested in measuring your child's gaze as a way to determine if, on average, infants have " +
-          'a preference for looking at certain images over others.',
+          'a preference for looking at certain images over others, even when the images are paired with a label.',
       },
       {
         text:
