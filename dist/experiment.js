@@ -27,24 +27,22 @@ const TRIAL_IMAGE_SECONDS = 6;
 // one of the two images. This is the target/lure manipulation: the
 // inventory doubles from 60 to 120 because either token can be named.
 //
-// TIMING. The clips in LABEL_AUDIO_SUBFOLDER are PRE-PADDED WITH SILENCE
-// by scripts/make_label_assets.py so that the NOUN begins exactly
-// LABEL_NOUN_ONSET_SECONDS after the clip starts. Since
-// exp-lookit-images-audio starts its audio and shows its images in the
-// same synchronous block (startTrial -> playAudio, showImages), that is
-// also the offset from image onset, which is what looking-while-listening
-// analysis time-locks to. On the current (female-voice) recordings the
-// noun starts ~1.0s into the source clip, so the carrier begins around
-// 2.0s and the padded clip finishes by ~4.3s - comfortably inside the 6s
-// trial, leaving a full 3s post-naming window.
+// TIMING. The clips play UNMODIFIED, straight from the recordings in
+// LABEL_AUDIO_SUBFOLDER. exp-lookit-images-audio starts its audio and
+// shows its images in the same synchronous block (startTrial ->
+// playAudio, showImages), so audio onset == image onset and the carrier
+// phrase begins immediately. The clips run ~1.5-1.7s inside the 6s trial.
 //
-// Changing this constant alone does NOTHING: the delay lives in the audio
-// files. Re-run scripts/make_label_assets.py, which reads its own copy of
-// the value (TARGET_NOUN_ONSET) and reports the achieved onset per clip.
-// Note MATLAB placed the label at +0.5s; 3s is a deliberate change, to
-// buy a clean pre-naming baseline.
-const LABEL_AUDIO_SUBFOLDER = 'Label_audio';
-const LABEL_NOUN_ONSET_SECONDS = 3;
+// There is deliberately NO constant here for when the noun is spoken.
+// An earlier version pre-padded each clip with silence so the noun landed
+// at a fixed 3s (scripts/make_label_assets.py, stimuli/Label_audio/); that
+// was dropped along with the pre-naming baseline it bought. The noun onset
+// is now a property of each recording, and it is NOT uniform across tokens
+// - measured on the current set it ranges 0.778-0.796s from clip start.
+// Looking-while-listening analysis time-locks to noun onset, so those
+// per-token values have to be measured off stimuli/Audio/ at analysis
+// time; nothing in the protocol records them.
+const LABEL_AUDIO_SUBFOLDER = 'Audio';
 
 // Matches Experiment_Simsom_LWL.m's Parameters.ISI = [1, 2] (uniform
 // random blank-screen gap between trials).
@@ -845,19 +843,19 @@ function buildTrialImageFrame(trial) {
 
   return {
     id: `trial-${trial.pairID}`,
-    // The spoken label, naming one of the two images. The silence that
-    // places the noun at LABEL_NOUN_ONSET_SECONDS is baked into the file
-    // (config.js, scripts/make_label_assets.py) - there is no audio-delay
-    // property on this frame to do it at runtime; `displayDelayMs` exists
-    // but applies to images only.
+    // The spoken label, naming one of the two images. Plays unmodified
+    // from the recording, starting with the images - so the phrase begins
+    // at image onset and the noun follows ~0.8s later, per token (see the
+    // TIMING note in config.js). This frame has no audio-delay property
+    // anyway; `displayDelayMs` exists but applies to images only.
     //
     // The [{src, type}] form takes an absolute URL because `audio` is in
     // this frame's assetsToExpand list, same as the AG frame's video. The
     // frame's own `durationSeconds` still ends the trial at exactly 6s;
-    // the clip runs out around 3.8s, so it never gates anything.
+    // the clip runs out under 1.7s, so it never gates anything.
     audio: [
       {
-        src: stimulusUrl(LABEL_AUDIO_SUBFOLDER, `label-${trial.targetToken}.mp3`),
+        src: stimulusUrl(LABEL_AUDIO_SUBFOLDER, `${trial.targetToken}.mp3`),
         type: 'audio/mp3',
       },
     ],
