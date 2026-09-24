@@ -212,6 +212,25 @@ def make_video(shape, motion, side, segments, total_frames):
         "-s", f"{WIDTH}x{HEIGHT}", "-r", str(FPS), "-i", "pipe:0",
         "-c:v", "libx264", "-preset", "slow", "-crf", "20",
         "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        # COLOUR TAGGING IS NOT OPTIONAL HERE, even though every clip is a
+        # flat grey background with one sprite on it.
+        #
+        # These used to encode untagged (color_range/color_space both
+        # "unknown"). RGB 50 becomes luma 59 under the standard limited
+        # range mapping, and a player that reads the file back as LIMITED
+        # returns 50 - but one that guesses FULL renders 59. That is a
+        # visibly lighter grey than the rgb(50,50,50) the frame around it
+        # is painted, so the letterbox strips above and below the 16:9
+        # clip showed up as two darker bars on any viewport that is not
+        # 16:9 (i.e. most laptops, which are 16:10).
+        #
+        # Tagging removes the guess. -color_range tv and the bt709 triple
+        # go in the container; the matching -x264-params write the same
+        # values into the bitstream's VUI, because players disagree about
+        # which they trust.
+        "-color_range", "tv",
+        "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
+        "-x264-params", "colorprim=bt709:transfer=bt709:colormatrix=bt709:range=tv",
         str(out_path),
     ]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)

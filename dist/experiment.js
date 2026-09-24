@@ -769,12 +769,13 @@ function buildAttentionGetterFrame(attentionGetter) {
       // 'fill' scales the clip up preserving aspect ratio, so a viewport
       // that is not 16:9 letterboxes the 1280x720 clip.
       //
-      // That letterbox area is NOT the frame background showing through -
-      // it is the <video> element's own backdrop, which browsers paint
-      // black, so on a 16:10 laptop it showed as two thin bars slightly
-      // darker than the rgb(50,50,50) surround. (This comment used to
-      // claim the letterboxing was invisible for exactly that wrong
-      // reason.) installVideoLetterboxColor in protocol.js repaints it.
+      // This comment used to claim the letterboxing was invisible
+      // because the clip's background matches the frame's. The colour was
+      // right; the ENCODING was not. The clips were untagged, so a player
+      // guessing full range rendered rgb(50,50,50) as 59 - visibly
+      // lighter than the strips around it. make_ag_assets.py now tags
+      // them tv/bt709, and installVideoLetterboxColor in protocol.js
+      // pins the strip colour as well.
       //
       // Not fixed by switching to object-fit: cover - cropping would eat
       // into the shape, and the shape's horizontal position is what
@@ -1483,13 +1484,7 @@ const STUDY_DEBRIEF = {
     title: 'Thank you!',
     emph: true,
     text: 'Here is some more information about the study you and your child just participated in. Feel free to skip this part if you want.',
-    // The closing message lives HERE, folded in from what used to be a
-    // separate STUDY_OUTRO frame, because this frame is the only one an
-    // early-exiting participant ever sees. exp-player's exitEarly() does
-    // `send('next', frames.length - 1)` - a single frame, the last one -
-    // and ExperimentParser.parse() flattens groups, so early exit can
-    // never play a sequence. Anything that must reach every participant
-    // has to be in this frame. Text is unchanged from the old outro.
+  
     blocks: [
       {
         text:
@@ -1499,10 +1494,7 @@ const STUDY_DEBRIEF = {
       { text: '\n' },
       {
         text:
-          'This was a study on how babies begin to understand early-learned nouns in their first two years of life.',
-      },
-      {
-        text:
+          'This was a study on how babies begin to understand early-learned nouns in their first two years of life.' +
           "To begin, your child first viewed an 'attention-getter' (the colorful shapes and sounds) to ensure " +
           'they were focused on the screen before each trial. Next, we presented two photos of objects ' +
           'side-by-side on the screen, followed by a verbal cue instructing your child to look at one of the ' +
@@ -1859,27 +1851,22 @@ function installToyImageGrid() {
   if (layOutGrid()) observer.disconnect();
 }
 
-// Paints the attention getter's letterbox bars the study background
-// colour instead of black.
+// Belt-and-braces for the attention getter's letterbox strips.
 //
-// THE BUG. The AG clips are 1280x720 (1.78) and play with
-// maximizeVideoArea on, so the video area is the whole viewport. Most
-// laptop screens are 16:10 (1.60), so the clip is letterboxed top and
-// bottom. frames.js used to claim this was invisible because the clip's
-// own background is rgb(50,50,50), the same as the frame - but the
-// letterbox area is NOT the frame showing through. It is the <video>
-// ELEMENT's own backdrop, which browsers paint black, so it reads as two
-// thin bars slightly darker than the background.
+// The AG clips are 1280x720, played with maximizeVideoArea on, so on any
+// viewport that is not 16:9 (most laptops are 16:10) object-fit: contain
+// letterboxes them and leaves a strip above and below. That strip is the
+// <video> element's own backdrop, and there is no frame property for it -
+// exp-lookit-video's `backgroundColor` applies to the frame around it.
+// This pins it to the study background so it cannot differ.
 //
-// WHY A STYLESHEET. exp-lookit-video's `backgroundColor` reaches the
-// frame, not the video element, and there is no frame property for the
-// element's own background. Injecting one rule is much less invasive
-// than the alternatives: cropping instead of letterboxing (object-fit:
-// cover) would cut into the shape, and the shape's horizontal position
-// is what encodes the AG's side - the known-gaze-direction reference the
-// whole frame exists to provide.
-//
-// Applies to the side bars too, on a viewport narrower than 16:9.
+// NOTE: this is NOT what made the bars visible. That was a colour-tagging
+// bug in the clips themselves - they were encoded untagged, so a player
+// guessing FULL range rendered the rgb(50,50,50) background as 59 and the
+// correctly-painted strips looked darker by comparison. Fixed at source
+// in scripts/make_ag_assets.py; the clips now carry an explicit tv/bt709
+// tag and decode back to exactly 50. This rule is kept because relying on
+// the element backdrop defaulting to something sensible is luck.
 function installVideoLetterboxColor() {
   if (typeof document === 'undefined') return;
   if (document.getElementById('ag-letterbox-color')) return;

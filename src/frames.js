@@ -125,12 +125,13 @@ function buildAttentionGetterFrame(attentionGetter) {
       // 'fill' scales the clip up preserving aspect ratio, so a viewport
       // that is not 16:9 letterboxes the 1280x720 clip.
       //
-      // That letterbox area is NOT the frame background showing through -
-      // it is the <video> element's own backdrop, which browsers paint
-      // black, so on a 16:10 laptop it showed as two thin bars slightly
-      // darker than the rgb(50,50,50) surround. (This comment used to
-      // claim the letterboxing was invisible for exactly that wrong
-      // reason.) installVideoLetterboxColor in protocol.js repaints it.
+      // This comment used to claim the letterboxing was invisible
+      // because the clip's background matches the frame's. The colour was
+      // right; the ENCODING was not. The clips were untagged, so a player
+      // guessing full range rendered rgb(50,50,50) as 59 - visibly
+      // lighter than the strips around it. make_ag_assets.py now tags
+      // them tv/bt709, and installVideoLetterboxColor in protocol.js
+      // pins the strip colour as well.
       //
       // Not fixed by switching to object-fit: cover - cropping would eat
       // into the shape, and the shape's horizontal position is what

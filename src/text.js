@@ -490,13 +490,7 @@ const STUDY_DEBRIEF = {
     title: 'Thank you!',
     emph: true,
     text: 'Here is some more information about the study you and your child just participated in. Feel free to skip this part if you want.',
-    // The closing message lives HERE, folded in from what used to be a
-    // separate STUDY_OUTRO frame, because this frame is the only one an
-    // early-exiting participant ever sees. exp-player's exitEarly() does
-    // `send('next', frames.length - 1)` - a single frame, the last one -
-    // and ExperimentParser.parse() flattens groups, so early exit can
-    // never play a sequence. Anything that must reach every participant
-    // has to be in this frame. Text is unchanged from the old outro.
+  
     blocks: [
       {
         text:
@@ -506,20 +500,17 @@ const STUDY_DEBRIEF = {
       { text: '\n' },
       {
         text:
-          'This was a study on how babies begin to understand early-learned nouns in their first two years of life.',
-      },
-      {
-        text:
-          "To begin, your child first viewed an 'attention-getter' (the colorful shapes and sounds) to ensure " +
-          'they were focused on the screen before each trial. Next, we presented two photos of objects ' +
+          'This was a study on how babies begin to understand early-learned nouns in their first two years of life.' +
+          "Your child first viewed an 'attention-getter' (the colorful shapes and sounds) to ensure " +
+          'they were focused on the screen before the trials began. Next, we presented two photos of objects ' +
           'side-by-side on the screen, followed by a verbal cue instructing your child to look at one of the ' +
           'objects on screen. All these images are of unfamiliar toys that your child likely has not had ' +
           'real-world experience with.',
       },
       {
         text:
-          'Our goal was to measure at what age children begin to look at the correct image that corresponds ' +
-          'with the label, and if differences emerge when compared to children who have had real-world ' +
+          'Our goal was to measure at what age infants begin to look at the correct image that corresponds ' +
+          'with the label, and if differences emerge across development, or when compared to babies who have had real-world ' +
           'experience with some of the objects.',
       },
       {
@@ -529,12 +520,9 @@ const STUDY_DEBRIEF = {
           'interesting than others in this dataset, and whether these preferences are stable across children.',
       },
       {
-        // exp-text-block renders `text` as HTML (the copy above relies on
-        // <b>/<u>/<i> elsewhere), so the anchor works as written. Single
-        // quotes inside, double quotes outside - the attributes must not
-        // terminate the JS string.
+    
         text:
-          "If you would like to learn more about this topic, you can check out this TED Talk: " +
+          "If you would like to learn more about early word learning, you can check out this TED Talk: " +
           "<a href='https://www.ted.com/talks/deb_roy_the_birth_of_a_word?subtitle=en' target='_blank' rel='noopener'>The Birth of a Word</a>",
       },
       {

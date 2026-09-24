@@ -256,27 +256,22 @@ function installToyImageGrid() {
   if (layOutGrid()) observer.disconnect();
 }
 
-// Paints the attention getter's letterbox bars the study background
-// colour instead of black.
+// Belt-and-braces for the attention getter's letterbox strips.
 //
-// THE BUG. The AG clips are 1280x720 (1.78) and play with
-// maximizeVideoArea on, so the video area is the whole viewport. Most
-// laptop screens are 16:10 (1.60), so the clip is letterboxed top and
-// bottom. frames.js used to claim this was invisible because the clip's
-// own background is rgb(50,50,50), the same as the frame - but the
-// letterbox area is NOT the frame showing through. It is the <video>
-// ELEMENT's own backdrop, which browsers paint black, so it reads as two
-// thin bars slightly darker than the background.
+// The AG clips are 1280x720, played with maximizeVideoArea on, so on any
+// viewport that is not 16:9 (most laptops are 16:10) object-fit: contain
+// letterboxes them and leaves a strip above and below. That strip is the
+// <video> element's own backdrop, and there is no frame property for it -
+// exp-lookit-video's `backgroundColor` applies to the frame around it.
+// This pins it to the study background so it cannot differ.
 //
-// WHY A STYLESHEET. exp-lookit-video's `backgroundColor` reaches the
-// frame, not the video element, and there is no frame property for the
-// element's own background. Injecting one rule is much less invasive
-// than the alternatives: cropping instead of letterboxing (object-fit:
-// cover) would cut into the shape, and the shape's horizontal position
-// is what encodes the AG's side - the known-gaze-direction reference the
-// whole frame exists to provide.
-//
-// Applies to the side bars too, on a viewport narrower than 16:9.
+// NOTE: this is NOT what made the bars visible. That was a colour-tagging
+// bug in the clips themselves - they were encoded untagged, so a player
+// guessing FULL range rendered the rgb(50,50,50) background as 59 and the
+// correctly-painted strips looked darker by comparison. Fixed at source
+// in scripts/make_ag_assets.py; the clips now carry an explicit tv/bt709
+// tag and decode back to exactly 50. This rule is kept because relying on
+// the element backdrop defaulting to something sensible is luck.
 function installVideoLetterboxColor() {
   if (typeof document === 'undefined') return;
   if (document.getElementById('ag-letterbox-color')) return;
