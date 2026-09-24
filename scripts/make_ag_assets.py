@@ -224,12 +224,53 @@ def make_video(shape, motion, side, segments, total_frames):
     return out_path
 
 
+def source_peak(path):
+    """Absolute peak of a source clip, as decoded.
+
+    Measured with ffmpeg's astats rather than numpy, which this script
+    does not otherwise need. aformat=flt matters: astats on an integer
+    format cannot report above 0 dBFS, and the whole point here is to
+    catch the sources that are ALREADY over it.
+    """
+    result = subprocess.run(
+        ["ffmpeg", "-v", "info", "-i", str(path),
+         "-af", "aformat=sample_fmts=flt,astats=measure_perchannel=none",
+         "-f", "null", "-"],
+        capture_output=True,
+    )
+    for line in result.stderr.decode(errors="replace").splitlines():
+        if "Peak level dB:" in line:
+            return 10 ** (float(line.split("Peak level dB:")[1].strip()) / 20)
+    raise RuntimeError(f"Could not read peak level for {path}")
+
+
 def make_audio(sound, total_seconds):
     """Sound at t=0 and again at the second 'sound' event, padded to length.
 
     MATLAB stops the speaker when the move begins, but every AG sound in
     this set is <=1.2s, so nothing is ever actually truncated - the two
     plays just land at their event onsets.
+
+    Two corrections are applied to the source before it is placed, both
+    found by measuring the built tracks (2026-09-23):
+
+    areverse/silenceremove - TRIM LEADING SILENCE. `adelay` places the
+    file, not the sound inside it, so any leading silence in the source
+    pushes that play late by exactly that much. giggle.mp3 carries 230ms
+    of it where the other four start at 0.000s, which put both its plays
+    230ms behind every other sound in the set - audible as "the giggle
+    starts late" and, worse, silently inconsistent across the AG factor.
+    Trimming at the source fixes both plays at once.
+
+    volume - STOP THE SOURCES CLIPPING. amix runs with normalize=0 (see
+    below), so a source above full scale stays above full scale. squeak.mp3
+    peaks at 3.41 and bell.mp3 at 1.31 in the originals; both were being
+    written out distorted. A measured static gain is used rather than
+    alimiter: a limiter is dynamic, so it changes the shape of the
+    transient it catches (and, tried first, still left squeak decoding at
+    1.43 because lossy encode overshoots). Scaling by a constant keeps the
+    waveform intact and is predictable. Only the two hot files are
+    touched; the other three peak at 0.51-0.77 and get gain 1.0.
     """
     offsets = []
     elapsed = 0.0
@@ -241,10 +282,20 @@ def make_audio(sound, total_seconds):
     src = AG_SRC / f"{sound}.mp3"
     out_path = OUT / f"ag-sound-{sound}.mp3"
     inputs, filters, labels = [], [], []
+    # start_periods=1 trims only the ONE silent run at the head, so any
+    # internal pause in a sound is preserved. Headroom is 0.8 rather than
+    # ~1.0 because lossy encoding overshoots on sharp transients, and the
+    # decoded file is what the browser plays.
+    peak = source_peak(src)
+    gain = min(1.0, 0.8 / peak) if peak > 0 else 1.0
+    clean = (
+        "silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0,"
+        f"volume={gain:.6f}"
+    )
     for idx, offset in enumerate(offsets):
         inputs += ["-i", str(src)]
         ms = int(round(offset * 1000))
-        filters.append(f"[{idx}:a]adelay={ms}|{ms}[d{idx}]")
+        filters.append(f"[{idx}:a]{clean},adelay={ms}|{ms}[d{idx}]")
         labels.append(f"[d{idx}]")
     # normalize=0 keeps each play at its original level instead of dividing
     # by the number of mixed inputs.

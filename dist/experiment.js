@@ -982,9 +982,45 @@ function buildTrialFrames(plan) {
 }
 
 // ---- src/text.js ----
-// All participant-facing copy, gathered here so it's easy to find and
-// replace.
+// All participant facing copy
 
+
+
+
+// The 12 trial images, as (value, label) pairs for the toy-experience
+// question below. Derived from pairs.js rather than retyped, so they
+// cannot drift out of sync with the actual stimuli; safe in the flattened
+// build because scripts/build.js emits config.js and pairs.js before
+// text.js, so all three bindings already exist.
+//
+// Grouped by token (both exemplars of an object adjacent) so a parent can
+// compare the two side by side - that comparison is the whole point of
+// asking per image rather than per object.
+//
+// STORED VALUES ARE THE FILENAMES ('F_ball.png'), not the labels, so the
+// response joins directly against the trial data, which identifies images
+// the same way. The labels are display only.
+//
+// LABELS ARE HTML. Alpaca renders optionLabels as markup, which is what
+// makes thumbnails possible at all - there is no image support anywhere
+// in exp-lookit-survey's own schema. The alt text carries the object name
+// so the option is still identifiable if an image fails to load.
+const TRIAL_IMAGE_OPTIONS = [...TOKENS].sort().flatMap((token) =>
+  FAMILIARITIES.map((familiarity) => {
+    const file = imageFilename(familiarity, token);
+    return {
+      value: file,
+      label:
+        `<img src="${STIMULI_BASE_URL}${TRIAL_IMAGE_SUBFOLDER}/${file}" alt="${token}" ` +
+        'style="height:80px;width:80px;object-fit:contain;vertical-align:middle;' +
+        'background:#fff;border-radius:4px;padding:2px" />',
+    };
+  })
+);
+const TOY_EXPERIENCE_VALUES = TRIAL_IMAGE_OPTIONS.map((o) => o.value).concat(['none']);
+const TOY_EXPERIENCE_LABELS = TRIAL_IMAGE_OPTIONS.map((o) => o.label).concat([
+  'None of these',
+]);
 
 // Pause / exit copy. Three separate behaviours, all real, all
 // parent-visible, so all three are spelled out rather than collapsed into
@@ -996,6 +1032,11 @@ function buildTrialFrames(plan) {
 //                      the on-screen instruction comes out of nowhere.
 //   leaving         -> pauseWhenExitingFullscreen (set in frames.js).
 //   fullscreen         Pause screen reads "Please return to fullscreen".
+//   switching tabs  -> installPauseWhenHidden in protocol.js drops
+//   / minimising       fullscreen on `visibilitychange`, which lands in
+//                      the same pauseWhenExitingFullscreen path above -
+//                      so the parent sees the same "return to fullscreen"
+//                      screen, and the copy does not need a fourth case.
 //   escape          -> exp-player's own keydown handler: exits fullscreen
 //                      (hence also pauses) AND shows the Continue/Exit
 //                      confirmation box.
@@ -1003,7 +1044,8 @@ const ESCAPE_PAUSE_EXIT_TRANSCRIPT_BLOCK = {
   text:
     'You can pause the study at any time by pressing the space bar. You will see a "Study paused" ' +
     'message; press the space bar again when you are ready to start back up. The study also pauses on its own ' +
-    'if you leave full screen, and the message will ask you to return to full screen first. \n\n' +
+    'if you leave full screen or switch to another tab or window, and the message will ask you to return to ' +
+    'full screen first. \n\n' +
     'To stop the study early, press the escape key. That pauses the study and brings up a box in the top right ' +
     'hand corner. You can press "Continue" if you think your child would like to keep going, or "Exit" if you ' +
     'or your child wants to stop the study early.',
@@ -1098,8 +1140,7 @@ const WELCOME_INSTRUCTIONS = {
     },
     {
       text:
-        '\nWe have put the setup first so that you can get everything ready before bringing your child over. ' +
-        'We will let you know when it is time to go get them.',
+        '\nYou do not need to have your child with you while you set up. Feel free to leave the window before you start the study so that your child is in a good mood and ready to begin.',
     },
   ],
 };
@@ -1143,15 +1184,18 @@ const STUDY_INTRO_VIDEO = {
   displayFullscreenOverride: true,
   instructionsVideo: [
     {
-      // .m4v is Apple's name for an MP4 container, so type: 'video/mp4' is
-      // correct and every modern browser plays it. The extension must
-      // match the file on disk exactly - a missing or wrong extension here
-      // 404s silently, since the frame just emits <source src type>.
+      // The extension must match the file on disk EXACTLY - a wrong one
+      // 404s silently, since the frame just emits <source src type>. This
+      // was .m4v (Apple's name for an MP4 container, also served as
+      // video/mp4) until the file was re-exported as .mp4 on 2026-09-23.
       //
       // Do NOT point this at a .mov: Firefox won't play a QuickTime
       // container, and `type` is what the browser uses to decide whether
       // to even attempt a source.
-      src: 'https://github.com/scaffolding-of-cognition-team/visual-saliency-chs/raw/main/instruction%20videos/chs_instructions_v2.m4v',
+      //
+      // The %20 is required - the folder really is "instruction videos"
+      // with a space, and an unescaped space breaks the URL.
+      src: 'https://github.com/scaffolding-of-cognition-team/visual-saliency-chs/raw/main/instruction%20videos/chs_instructions_v2.mp4',
       type: 'video/mp4',
     },
   ],
@@ -1347,22 +1391,6 @@ const WEBCAM_DISPLAY_CHECK = {
   ],
 };
 
-const STUDY_OUTRO = {
-  kind: 'exp-lookit-text',
-  displayFullscreenOverride: true,
-  blocks: [
-    { emph: true, title: 'You and your child have completed the experiment! Awesome job!' },
-    {
-      text:
-        'To wrap up, we will ask you a few questions that will take at most 2 minutes more. \n\n<b>At this ' +
-        'point, your child has completed the study and does not need to be present.</b> Feel free to occupy ' +
-        'them now before we wrap up.',
-    },
-  ],
-  showPreviousButton: false,
-  nextButtonText: 'Next',
-};
-
 const FEEDBACK_SURVEY = {
   kind: 'exp-lookit-survey',
   displayFullscreenOverride: true,
@@ -1379,6 +1407,11 @@ const FEEDBACK_SURVEY = {
           format: 'email',
         },
         'instructions-feedback': {
+          // Every other field here has a title; this one never did, so the
+          // 1-5 radios rendered with no question above them. Alpaca falls
+          // back to the property name only for the label position, not as
+          // a question, so there was nothing on screen to answer.
+          title: 'How clear were the instructions for this study?',
           type: 'string',
           enum: [
             '1 - Not clear at all',
@@ -1395,6 +1428,14 @@ const FEEDBACK_SURVEY = {
             type: 'string',
             enum: ["The videos buffered or didn't play smoothly", 'The videos took a long time to load'],
           },
+          uniqueItems: true,
+        },
+        'toy-experience': {
+          title:
+            'Has your child ever regularly played with any of these specific items in real life? ' +
+            'These are the exact pictures they saw. Select all that apply.',
+          type: 'array',
+          items: { type: 'string', enum: TOY_EXPERIENCE_VALUES },
           uniqueItems: true,
         },
         'miscellaneous-feedback': {
@@ -1421,6 +1462,10 @@ const FEEDBACK_SURVEY = {
           type: 'checkbox',
           optionLabels: ["The videos buffered or didn't play smoothly", 'The videos took a long time to load'],
         },
+        'toy-experience': {
+          type: 'checkbox',
+          optionLabels: TOY_EXPERIENCE_LABELS,
+        },
       },
     },
   },
@@ -1429,7 +1474,14 @@ const FEEDBACK_SURVEY = {
 
 const STUDY_DEBRIEF = {
   kind: 'exp-lookit-exit-survey',
-  displayFullscreenOverride: true,
+  // NO displayFullscreenOverride here, unlike every other frame in this
+  // file. exp-lookit-exit-survey is ExpFrameBaseComponent.extend(
+  // Validations) - it does not mix in FullScreen, so the property was
+  // silently ignored anyway (see the "frame properties are silently
+  // ignored" warning in the README). Removed rather than left as a
+  // harmless leftover because it implied this frame was deliberately
+  // fullscreen, which is exactly the thing that breaks its withdrawal
+  // dialog - see installExitFullscreenOnExitSurvey in protocol.js.
   doUseCamera: false,
   showDatabraryOptions: true,
   includeWithdrawalExample: true,
@@ -1437,31 +1489,141 @@ const STUDY_DEBRIEF = {
     title: 'Thank you!',
     emph: true,
     text: 'Here is some more information about the study you and your child just participated in. Feel free to skip this part if you want.',
+    // The closing message lives HERE, folded in from what used to be a
+    // separate STUDY_OUTRO frame, because this frame is the only one an
+    // early-exiting participant ever sees. exp-player's exitEarly() does
+    // `send('next', frames.length - 1)` - a single frame, the last one -
+    // and ExperimentParser.parse() flattens groups, so early exit can
+    // never play a sequence. Anything that must reach every participant
+    // has to be in this frame. Text is unchanged from the old outro.
     blocks: [
+      { emph: true, title: 'You and your child have completed the experiment! Awesome job!' },
+      {
+        text:
+          'To wrap up, we will ask you a few questions that will take at most 2 minutes more. \n\n<b>At this ' +
+          'point, your child has completed the study and does not need to be present.</b> Feel free to occupy ' +
+          'them now before we wrap up.',
+      },
       { text: '\n' },
       {
         text:
-          'This was a visual preference study on what kinds of pictures infants find most interesting. They ' +
-          'saw different images of early-learned words paired together, and we want to know which image the ' +
-          'look longer at, and if this preference is stable across children.',
+          'This was a study on how babies begin to understand early-learned nouns in their first two years of life.',
       },
       {
         text:
-          "We are interested in measuring your child's gaze as a way to determine if, on average, infants have " +
-          'a preference for looking at certain images over others.',
+          "To begin, your child first viewed an 'attention-getter' (the colorful shapes and sounds) to ensure " +
+          'they were focused on the screen before each trial.',
       },
       {
         text:
-          'If babies, on average, have similar preferences for some images over others that we showed them ' +
-          "here, then that would suggest that there is something unique about the image that makes it " +
-          "interesting to infants. We measure this 'preference' by recording the amount of time your child " +
-          'looked at one picture over the other on the screen. On average, if the children in this study look ' +
-          'longer at specific images, we infer that there is something about that image or concept that infants ' +
-          'find particularly interesting. We hope that this study will help us better understand the origins of ' +
-          'how children learn words and their visual preferences.',
+          'Next, we presented two photos of objects side-by-side on the screen, followed by a verbal cue ' +
+          'instructing your child to look at one of the objects on screen.',
+      },
+      {
+        text:
+          'All these images are of unfamiliar toys that your child likely has not had real world experience with',
+      },
+      {
+        text:
+          'Our goal was to measure at what age children begin to look at the correct image that corresponds ' +
+          'with the label, and if differences emerge when compared to children who have had real world ' +
+          'experience with some of the objects.',
+      },
+      {
+        text:
+          'We anticipated that children who have direct experience with the objects on screen would learn the ' +
+          'words faster. Additionally, we were interested in whether infants found some images more ' +
+          'interesting than others in this dataset, and whether these preferences are stable across children.',
+      },
+      {
+        // exp-text-block renders `text` as HTML (the copy above relies on
+        // <b>/<u>/<i> elsewhere), so the anchor works as written. Single
+        // quotes inside, double quotes outside - the attributes must not
+        // terminate the JS string.
+        text:
+          "If you would like to learn more about this topic, you can check out this TED Talk: " +
+          "<a href='https://www.ted.com/talks/deb_roy_the_birth_of_a_word?subtitle=en' target='_blank' rel='noopener'>The Birth of a Word</a>",
+      },
+      {
+        text:
+          'We appreciate your participation in our study. As a token of gratitude, you will receive a $5 Tango ' +
+          'gift card as compensation within a week.',
       },
     ],
   },
+};
+
+// A blank, instantly self-advancing frame that sits LAST in the sequence
+// and exists only to route. It is never really "seen": no images, no
+// text, 0.1s long, auto-proceeding.
+//
+// WHY IT EXISTS. exp-player's exitEarly() does
+// `send('next', frames.length - 1)`, so a participant who presses Escape
+// -> Exit always lands on whatever frame is last, and the study would
+// then end - skipping `feedback`, so they would never be asked for the
+// address their gift card goes to. Only one frame is ever shown that way
+// (ExperimentParser.parse() flattens groups, so a group cannot smuggle in
+// a sequence).
+//
+// selectNextFrame is the lever: exp-frame-base's next() evaluates it (as
+// a STRING, via `Function('return ' + ...)`, so it must begin with
+// `function`) and passes it expData, letting this frame look at what has
+// already been completed and send the participant back for anything they
+// missed. expData is keyed `${index}-${frame.id}`, hence the suffix match.
+//
+//   completer:    debrief -> feedback -> [here] -> done -> END
+//   early exiter: [here] -> debrief -> feedback -> [here] -> done -> END
+//
+// So BOTH paths see debrief then feedback, in that order. The list
+// ["-study-debrief", "-feedback"] IS that order - the router jumps to the
+// first entry not yet in expData, so it resumes at the earliest thing the
+// participant missed rather than only ever checking one frame. Putting the
+// router last rather than giving feedback and debrief a selectNextFrame
+// each is what keeps the order identical: with only two frames at the
+// end, whichever is last is necessarily first for an early exiter and
+// last for a completer, so one path is always reversed.
+//
+// If expData is unavailable the router ends the study - exactly the
+// behaviour without this frame. That guard is load-bearing: without it,
+// "nothing recorded" reads as "nothing completed" and the router would
+// send a completer back round forever.
+//
+// With expData present a loop cannot happen, because each backward jump
+// is to a frame that then writes its own key, so the next pass through
+// finds it done. The one residual case is a frame whose save never lands
+// at all - but EFP surfaces save failures itself, and the study is
+// already broken at that point.
+//
+// displayFullscreen:false is REQUIRED. exp-lookit-images-audio hardcodes
+// `displayFullscreen: true` as a component default ("force fullscreen for
+// all uses of this component"), and this frame runs after the exit survey
+// has deliberately left fullscreen (installExitFullscreenOnExitSurvey in
+// protocol.js). Without the override it would try to re-enter fullscreen
+// on the last screen of the study.
+const CLOSING_ROUTER = {
+  kind: 'exp-lookit-images-audio',
+  images: [],
+  durationSeconds: 0.1,
+  autoProceed: true,
+  doRecording: false,
+  displayFullscreen: false,
+  showProgressBar: false,
+  showCursor: false,
+  selectNextFrame:
+    'function (frames, frameIndex, frameData, expData) {' +
+    '  if (!expData) { return frames.length; }' +
+    '  var seen = Object.keys(expData);' +
+    '  var done = function (suffix) {' +
+    '    return seen.some(function (k) { return k.endsWith(suffix); });' +
+    '  };' +
+    '  var indexOf = function (suffix) {' +
+    '    return frames.findIndex(function (f) { return f.id && f.id.endsWith(suffix); });' +
+    '  };' +
+    '  var pending = ["-study-debrief", "-feedback"].filter(function (s) { return !done(s); });' +
+    '  if (!pending.length) { return frames.length; }' +
+    '  var i = indexOf(pending[0]);' +
+    '  return i === -1 ? frames.length : i;' +
+    '}',
 };
 
 // ---- protocol.js ----
@@ -1537,7 +1699,118 @@ function getChildSeed(child) {
   return fallback;
 }
 
-const childSeed = getChildSeed(child);
+// Pauses the study whenever the page stops being visible - switching to
+// another tab, minimising the window, locking the screen.
+//
+// WHY THIS LIVES HERE AND NOT IN A FRAME PROPERTY. The frameplayer has no
+// such property. Its pause-unpause mixin fires on exactly two things:
+// the pauseKey, and exiting fullscreen (onFullscreen -> _togglePauseState).
+// Nothing in the mixin or in exp-player listens for `visibilitychange`,
+// `blur` or `pagehide`, so there is no config that expresses "pause on tab
+// switch". Since the whole protocol generator is evaluated in the page,
+// attaching the listener here is the only lever available without forking
+// ember-lookit-frameplayer.
+//
+// HOW IT PAUSES. It does NOT reach into Ember or synthesise a keypress -
+// both would depend on internals and on _isPaused's current value, and a
+// synthetic pauseKey TOGGLES, so it could just as easily unpause. Instead
+// it drops fullscreen, which routes into the mixin's own already-enabled
+// pauseWhenExitingFullscreen path (set in frames.js). The parent then gets
+// the standard "Study paused / Please return to fullscreen" cover and the
+// standard recovery flow, with no new UI and no new state to keep in sync.
+//
+// Chrome may already exit fullscreen on a tab switch, in which case this
+// is belt-and-braces there; it is what makes the behaviour deterministic
+// on other browsers, and it also covers minimise and screen-lock, which
+// do not touch fullscreen anywhere.
+//
+// NOT covered: switching to another APPLICATION while the browser window
+// stays visible does not set document.hidden, so it does not fire. `blur`
+// would catch it, but blur also fires on devtools, on clicking the URL
+// bar, and on any other focus change - false pauses mid-trial are worse
+// here than a missed one, so it is deliberately left out.
+function installPauseWhenHidden() {
+  // The build's Lookit load check calls generateProtocol under Node, where
+  // there is no document - bail rather than throw and fail the build.
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
+  // generateProtocol can be called more than once per page load; one
+  // listener is enough.
+  if (window.__pauseWhenHiddenInstalled) return;
+  window.__pauseWhenHiddenInstalled = true;
+
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) return;
+    const inFullscreen = document.fullscreenElement || document.webkitFullscreenElement;
+    if (!inFullscreen) return;
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    // Exiting fullscreen needs no user gesture (entering does), so this is
+    // allowed even though it runs while the page is hidden. Firefox
+    // rejects the promise if fullscreen has already gone away on its own -
+    // that is the outcome we wanted anyway, so swallow it.
+    const result = exit.call(document);
+    if (result && typeof result.catch === 'function') result.catch(function () {});
+  });
+}
+
+// Leaves browser fullscreen as soon as the exit survey renders, so its
+// withdrawal-confirmation dialog is visible.
+//
+// THE BUG. exp-lookit-exit-survey's withdrawal checkbox opens an
+// ember-bootstrap {{#bs-modal}}, and bs-modal renders through a wormhole
+// into a destination element appended to <body>. The fullscreen element
+// is #experiment-player (full-screen mixin's fullScreenElementId), and
+// the browser paints ONLY the fullscreen element's subtree - so the modal
+// mounts outside it and is simply never drawn. The parent ticks the
+// withdrawal box and nothing appears to happen.
+//
+// WHY IT IS STILL FULLSCREEN HERE. Nothing in the frameplayer ever leaves
+// fullscreen between frames. exp-player's next() calls _transition() and
+// sets frameIndex, and neither consults displayFullscreen; the full-screen
+// mixin has no willDestroyElement and only exits from displayError() or
+// the Escape handler. So fullscreen entered back in the trial block simply
+// persists all the way to the end of the study.
+//
+// Note this frame cannot fix it itself: exp-lookit-exit-survey is
+// ExpFrameBaseComponent.extend(Validations) - it mixes in NEITHER
+// FullScreen nor PauseUnpause. That is also why the exit is safe: with no
+// pause-unpause mixin there is no onFullscreen handler to trip, so
+// dropping fullscreen here cannot pause the frame (it would, on a trial
+// frame - see frames.js's pauseWhenExitingFullscreen).
+//
+// Keyed on `.exp-lookit-exit-survey`, the root class in the component's
+// own template. The observer disconnects on first hit, and the callback is
+// one querySelector per mutation batch until then.
+function installExitFullscreenOnExitSurvey() {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
+  if (window.__exitSurveyFullscreenInstalled) return;
+  window.__exitSurveyFullscreenInstalled = true;
+
+  function leaveFullscreenIfExitSurveyShowing() {
+    if (!document.querySelector('.exp-lookit-exit-survey')) return false;
+    const inFullscreen = document.fullscreenElement || document.webkitFullscreenElement;
+    if (inFullscreen) {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      const result = exit.call(document);
+      if (result && typeof result.catch === 'function') result.catch(function () {});
+    }
+    // Found the frame: stop watching either way. If it was already out of
+    // fullscreen there is nothing left to do, and the exit survey is
+    // terminal, so it will not appear a second time.
+    return true;
+  }
+
+  if (typeof MutationObserver === 'undefined' || !document.body) return;
+  const observer = new MutationObserver(function () {
+    if (leaveFullscreenIfExitSurveyShowing()) observer.disconnect();
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  if (leaveFullscreenIfExitSurveyShowing()) observer.disconnect();
+}
+
+installPauseWhenHidden();
+  installExitFullscreenOnExitSurvey();
+
+  const childSeed = getChildSeed(child);
   const sessionSeed = makeSessionSeed();
   // eslint-disable-next-line no-console
   console.log(`generateProtocol: childSeed ${childSeed} | sessionSeed ${sessionSeed}`);
@@ -1557,9 +1830,9 @@ const childSeed = getChildSeed(child);
     'video-consent': VIDEO_CONSENT,
     'webcam-display-check': WEBCAM_DISPLAY_CHECK,
     ...trialFrames,
-    'study-outro': STUDY_OUTRO,
-    feedback: FEEDBACK_SURVEY,
     'study-debrief': STUDY_DEBRIEF,
+    feedback: FEEDBACK_SURVEY,
+    'closing-router': CLOSING_ROUTER,
   };
 
   // ORDER NOTE: consent sits late, immediately after the "go get your
@@ -1585,9 +1858,10 @@ const childSeed = getChildSeed(child);
     'video-consent',
     'webcam-display-check',
     ...trialSequence,
-    'study-outro',
-    'feedback',
     'study-debrief',
+    'feedback',
+    // Must stay LAST - it is where exitEarly() lands. See CLOSING_ROUTER.
+    'closing-router',
   ];
 
   return { frames, sequence };

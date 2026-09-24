@@ -21,9 +21,9 @@ const {
   FINAL_REMINDERS,
   FINAL_SETUP_INSTRUCTIONS,
   WEBCAM_DISPLAY_CHECK,
-  STUDY_OUTRO,
   FEEDBACK_SURVEY,
   STUDY_DEBRIEF,
+  CLOSING_ROUTER,
 } = require('./src/text');
 
 // Fresh entropy, used to seed the attention-getter stream only. AGs vary
@@ -84,7 +84,118 @@ function getChildSeed(child) {
   return fallback;
 }
 
+// Pauses the study whenever the page stops being visible - switching to
+// another tab, minimising the window, locking the screen.
+//
+// WHY THIS LIVES HERE AND NOT IN A FRAME PROPERTY. The frameplayer has no
+// such property. Its pause-unpause mixin fires on exactly two things:
+// the pauseKey, and exiting fullscreen (onFullscreen -> _togglePauseState).
+// Nothing in the mixin or in exp-player listens for `visibilitychange`,
+// `blur` or `pagehide`, so there is no config that expresses "pause on tab
+// switch". Since the whole protocol generator is evaluated in the page,
+// attaching the listener here is the only lever available without forking
+// ember-lookit-frameplayer.
+//
+// HOW IT PAUSES. It does NOT reach into Ember or synthesise a keypress -
+// both would depend on internals and on _isPaused's current value, and a
+// synthetic pauseKey TOGGLES, so it could just as easily unpause. Instead
+// it drops fullscreen, which routes into the mixin's own already-enabled
+// pauseWhenExitingFullscreen path (set in frames.js). The parent then gets
+// the standard "Study paused / Please return to fullscreen" cover and the
+// standard recovery flow, with no new UI and no new state to keep in sync.
+//
+// Chrome may already exit fullscreen on a tab switch, in which case this
+// is belt-and-braces there; it is what makes the behaviour deterministic
+// on other browsers, and it also covers minimise and screen-lock, which
+// do not touch fullscreen anywhere.
+//
+// NOT covered: switching to another APPLICATION while the browser window
+// stays visible does not set document.hidden, so it does not fire. `blur`
+// would catch it, but blur also fires on devtools, on clicking the URL
+// bar, and on any other focus change - false pauses mid-trial are worse
+// here than a missed one, so it is deliberately left out.
+function installPauseWhenHidden() {
+  // The build's Lookit load check calls generateProtocol under Node, where
+  // there is no document - bail rather than throw and fail the build.
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
+  // generateProtocol can be called more than once per page load; one
+  // listener is enough.
+  if (window.__pauseWhenHiddenInstalled) return;
+  window.__pauseWhenHiddenInstalled = true;
+
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) return;
+    const inFullscreen = document.fullscreenElement || document.webkitFullscreenElement;
+    if (!inFullscreen) return;
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    // Exiting fullscreen needs no user gesture (entering does), so this is
+    // allowed even though it runs while the page is hidden. Firefox
+    // rejects the promise if fullscreen has already gone away on its own -
+    // that is the outcome we wanted anyway, so swallow it.
+    const result = exit.call(document);
+    if (result && typeof result.catch === 'function') result.catch(function () {});
+  });
+}
+
+// Leaves browser fullscreen as soon as the exit survey renders, so its
+// withdrawal-confirmation dialog is visible.
+//
+// THE BUG. exp-lookit-exit-survey's withdrawal checkbox opens an
+// ember-bootstrap {{#bs-modal}}, and bs-modal renders through a wormhole
+// into a destination element appended to <body>. The fullscreen element
+// is #experiment-player (full-screen mixin's fullScreenElementId), and
+// the browser paints ONLY the fullscreen element's subtree - so the modal
+// mounts outside it and is simply never drawn. The parent ticks the
+// withdrawal box and nothing appears to happen.
+//
+// WHY IT IS STILL FULLSCREEN HERE. Nothing in the frameplayer ever leaves
+// fullscreen between frames. exp-player's next() calls _transition() and
+// sets frameIndex, and neither consults displayFullscreen; the full-screen
+// mixin has no willDestroyElement and only exits from displayError() or
+// the Escape handler. So fullscreen entered back in the trial block simply
+// persists all the way to the end of the study.
+//
+// Note this frame cannot fix it itself: exp-lookit-exit-survey is
+// ExpFrameBaseComponent.extend(Validations) - it mixes in NEITHER
+// FullScreen nor PauseUnpause. That is also why the exit is safe: with no
+// pause-unpause mixin there is no onFullscreen handler to trip, so
+// dropping fullscreen here cannot pause the frame (it would, on a trial
+// frame - see frames.js's pauseWhenExitingFullscreen).
+//
+// Keyed on `.exp-lookit-exit-survey`, the root class in the component's
+// own template. The observer disconnects on first hit, and the callback is
+// one querySelector per mutation batch until then.
+function installExitFullscreenOnExitSurvey() {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
+  if (window.__exitSurveyFullscreenInstalled) return;
+  window.__exitSurveyFullscreenInstalled = true;
+
+  function leaveFullscreenIfExitSurveyShowing() {
+    if (!document.querySelector('.exp-lookit-exit-survey')) return false;
+    const inFullscreen = document.fullscreenElement || document.webkitFullscreenElement;
+    if (inFullscreen) {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      const result = exit.call(document);
+      if (result && typeof result.catch === 'function') result.catch(function () {});
+    }
+    // Found the frame: stop watching either way. If it was already out of
+    // fullscreen there is nothing left to do, and the exit survey is
+    // terminal, so it will not appear a second time.
+    return true;
+  }
+
+  if (typeof MutationObserver === 'undefined' || !document.body) return;
+  const observer = new MutationObserver(function () {
+    if (leaveFullscreenIfExitSurveyShowing()) observer.disconnect();
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  if (leaveFullscreenIfExitSurveyShowing()) observer.disconnect();
+}
+
 function generateProtocol(child, pastSessions) {
+  installPauseWhenHidden();
+  installExitFullscreenOnExitSurvey();
+
   const childSeed = getChildSeed(child);
   const sessionSeed = makeSessionSeed();
   // eslint-disable-next-line no-console
@@ -105,9 +216,9 @@ function generateProtocol(child, pastSessions) {
     'video-consent': VIDEO_CONSENT,
     'webcam-display-check': WEBCAM_DISPLAY_CHECK,
     ...trialFrames,
-    'study-outro': STUDY_OUTRO,
-    feedback: FEEDBACK_SURVEY,
     'study-debrief': STUDY_DEBRIEF,
+    feedback: FEEDBACK_SURVEY,
+    'closing-router': CLOSING_ROUTER,
   };
 
   // ORDER NOTE: consent sits late, immediately after the "go get your
@@ -133,9 +244,10 @@ function generateProtocol(child, pastSessions) {
     'video-consent',
     'webcam-display-check',
     ...trialSequence,
-    'study-outro',
-    'feedback',
     'study-debrief',
+    'feedback',
+    // Must stay LAST - it is where exitEarly() lands. See CLOSING_ROUTER.
+    'closing-router',
   ];
 
   return { frames, sequence };
