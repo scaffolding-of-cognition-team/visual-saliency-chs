@@ -766,9 +766,19 @@ function buildAttentionGetterFrame(attentionGetter) {
     kind: 'exp-lookit-video',
     video: {
       source: [{ src: videoUrl, type: 'video/mp4' }],
-      // 'fill' scales the clip up preserving aspect ratio. The clip is
-      // 16:9 on the same rgb(50,50,50) background as the frame, so any
-      // letterboxing on a differently-shaped viewport is invisible.
+      // 'fill' scales the clip up preserving aspect ratio, so a viewport
+      // that is not 16:9 letterboxes the 1280x720 clip.
+      //
+      // That letterbox area is NOT the frame background showing through -
+      // it is the <video> element's own backdrop, which browsers paint
+      // black, so on a 16:10 laptop it showed as two thin bars slightly
+      // darker than the rgb(50,50,50) surround. (This comment used to
+      // claim the letterboxing was invisible for exactly that wrong
+      // reason.) installVideoLetterboxColor in protocol.js repaints it.
+      //
+      // Not fixed by switching to object-fit: cover - cropping would eat
+      // into the shape, and the shape's horizontal position is what
+      // encodes the AG's side, which is the whole point of the frame.
       position: 'fill',
       loop: false,
     },
@@ -1483,9 +1493,8 @@ const STUDY_DEBRIEF = {
     blocks: [
       {
         text:
-          'To wrap up, we will ask you a few questions that will take at most 2 minutes more. \n\n<b>At this ' +
-          'point, your child has completed the study and does not need to be present.</b> Feel free to occupy ' +
-          'them now before we wrap up.',
+          '<b>At this point, your child has completed the study and does not need to be present.</b> Feel ' +
+          'free to occupy them now before we wrap up.',
       },
       { text: '\n' },
       {
@@ -1548,11 +1557,12 @@ const STUDY_DEBRIEF = {
 // already been completed and send the participant back for anything they
 // missed. expData is keyed `${index}-${frame.id}`, hence the suffix match.
 //
-//   completer:    debrief -> feedback -> [here] -> done -> END
-//   early exiter: [here] -> debrief -> feedback -> [here] -> done -> END
+//   completer:    feedback -> debrief -> [here] -> done -> END
+//   early exiter: [here] -> feedback -> debrief -> [here] -> done -> END
 //
-// So BOTH paths see debrief then feedback, in that order. The list
-// ["-study-debrief", "-feedback"] IS that order - the router jumps to the
+// So BOTH paths end on the debrief ("Thank you!"), which is the point of
+// ordering it this way. The list ["-feedback", "-study-debrief"] IS that
+// order - the router jumps to the
 // first entry not yet in expData, so it resumes at the earliest thing the
 // participant missed rather than only ever checking one frame. Putting the
 // router last rather than giving feedback and debrief a selectNextFrame
@@ -1596,7 +1606,7 @@ const CLOSING_ROUTER = {
     '  var indexOf = function (suffix) {' +
     '    return frames.findIndex(function (f) { return f.id && f.id.endsWith(suffix); });' +
     '  };' +
-    '  var pending = ["-study-debrief", "-feedback"].filter(function (s) { return !done(s); });' +
+    '  var pending = ["-feedback", "-study-debrief"].filter(function (s) { return !done(s); });' +
     '  if (!pending.length) { return frames.length; }' +
     '  var i = indexOf(pending[0]);' +
     '  return i === -1 ? frames.length : i;' +
@@ -1613,6 +1623,7 @@ const CLOSING_ROUTER = {
 // testing only (`node scripts/build.js` flattens this + src/*.js into a
 // single dependency-free script for pasting into the Lookit builder, which
 // expects one self-contained generateProtocol(child, pastSessions)).
+
 
 
 
@@ -1848,7 +1859,38 @@ function installToyImageGrid() {
   if (layOutGrid()) observer.disconnect();
 }
 
-installPauseWhenHidden();
+// Paints the attention getter's letterbox bars the study background
+// colour instead of black.
+//
+// THE BUG. The AG clips are 1280x720 (1.78) and play with
+// maximizeVideoArea on, so the video area is the whole viewport. Most
+// laptop screens are 16:10 (1.60), so the clip is letterboxed top and
+// bottom. frames.js used to claim this was invisible because the clip's
+// own background is rgb(50,50,50), the same as the frame - but the
+// letterbox area is NOT the frame showing through. It is the <video>
+// ELEMENT's own backdrop, which browsers paint black, so it reads as two
+// thin bars slightly darker than the background.
+//
+// WHY A STYLESHEET. exp-lookit-video's `backgroundColor` reaches the
+// frame, not the video element, and there is no frame property for the
+// element's own background. Injecting one rule is much less invasive
+// than the alternatives: cropping instead of letterboxing (object-fit:
+// cover) would cut into the shape, and the shape's horizontal position
+// is what encodes the AG's side - the known-gaze-direction reference the
+// whole frame exists to provide.
+//
+// Applies to the side bars too, on a viewport narrower than 16:9.
+function installVideoLetterboxColor() {
+  if (typeof document === 'undefined') return;
+  if (document.getElementById('ag-letterbox-color')) return;
+  const style = document.createElement('style');
+  style.id = 'ag-letterbox-color';
+  style.textContent = `#player-video { background-color: ${BACKGROUND_COLOR}; }`;
+  (document.head || document.documentElement).appendChild(style);
+}
+
+installVideoLetterboxColor();
+  installPauseWhenHidden();
   installExitFullscreenOnExitSurvey();
   installToyImageGrid();
 
@@ -1871,8 +1913,8 @@ installPauseWhenHidden();
     'video-consent': VIDEO_CONSENT,
     'webcam-display-check': WEBCAM_DISPLAY_CHECK,
     ...trialFrames,
-    'study-debrief': STUDY_DEBRIEF,
     feedback: FEEDBACK_SURVEY,
+    'study-debrief': STUDY_DEBRIEF,
     'closing-router': CLOSING_ROUTER,
   };
 
@@ -1898,8 +1940,8 @@ installPauseWhenHidden();
     'video-consent',
     'webcam-display-check',
     ...trialSequence,
-    'study-debrief',
     'feedback',
+    'study-debrief',
     // Must stay LAST - it is where exitEarly() lands. See CLOSING_ROUTER.
     'closing-router',
   ];

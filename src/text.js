@@ -500,9 +500,8 @@ const STUDY_DEBRIEF = {
     blocks: [
       {
         text:
-          'To wrap up, we will ask you a few questions that will take at most 2 minutes more. \n\n<b>At this ' +
-          'point, your child has completed the study and does not need to be present.</b> Feel free to occupy ' +
-          'them now before we wrap up.',
+          '<b>At this point, your child has completed the study and does not need to be present.</b> Feel ' +
+          'free to occupy them now before we wrap up.',
       },
       { text: '\n' },
       {
@@ -565,11 +564,12 @@ const STUDY_DEBRIEF = {
 // already been completed and send the participant back for anything they
 // missed. expData is keyed `${index}-${frame.id}`, hence the suffix match.
 //
-//   completer:    debrief -> feedback -> [here] -> done -> END
-//   early exiter: [here] -> debrief -> feedback -> [here] -> done -> END
+//   completer:    feedback -> debrief -> [here] -> done -> END
+//   early exiter: [here] -> feedback -> debrief -> [here] -> done -> END
 //
-// So BOTH paths see debrief then feedback, in that order. The list
-// ["-study-debrief", "-feedback"] IS that order - the router jumps to the
+// So BOTH paths end on the debrief ("Thank you!"), which is the point of
+// ordering it this way. The list ["-feedback", "-study-debrief"] IS that
+// order - the router jumps to the
 // first entry not yet in expData, so it resumes at the earliest thing the
 // participant missed rather than only ever checking one frame. Putting the
 // router last rather than giving feedback and debrief a selectNextFrame
@@ -613,7 +613,7 @@ const CLOSING_ROUTER = {
     '  var indexOf = function (suffix) {' +
     '    return frames.findIndex(function (f) { return f.id && f.id.endsWith(suffix); });' +
     '  };' +
-    '  var pending = ["-study-debrief", "-feedback"].filter(function (s) { return !done(s); });' +
+    '  var pending = ["-feedback", "-study-debrief"].filter(function (s) { return !done(s); });' +
     '  if (!pending.length) { return frames.length; }' +
     '  var i = indexOf(pending[0]);' +
     '  return i === -1 ? frames.length : i;' +

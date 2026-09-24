@@ -122,9 +122,19 @@ function buildAttentionGetterFrame(attentionGetter) {
     kind: 'exp-lookit-video',
     video: {
       source: [{ src: videoUrl, type: 'video/mp4' }],
-      // 'fill' scales the clip up preserving aspect ratio. The clip is
-      // 16:9 on the same rgb(50,50,50) background as the frame, so any
-      // letterboxing on a differently-shaped viewport is invisible.
+      // 'fill' scales the clip up preserving aspect ratio, so a viewport
+      // that is not 16:9 letterboxes the 1280x720 clip.
+      //
+      // That letterbox area is NOT the frame background showing through -
+      // it is the <video> element's own backdrop, which browsers paint
+      // black, so on a 16:10 laptop it showed as two thin bars slightly
+      // darker than the rgb(50,50,50) surround. (This comment used to
+      // claim the letterboxing was invisible for exactly that wrong
+      // reason.) installVideoLetterboxColor in protocol.js repaints it.
+      //
+      // Not fixed by switching to object-fit: cover - cropping would eat
+      // into the shape, and the shape's horizontal position is what
+      // encodes the AG's side, which is the whole point of the frame.
       position: 'fill',
       loop: false,
     },

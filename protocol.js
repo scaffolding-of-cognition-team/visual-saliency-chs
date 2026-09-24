@@ -8,6 +8,7 @@
 // single dependency-free script for pasting into the Lookit builder, which
 // expects one self-contained generateProtocol(child, pastSessions)).
 
+const { BACKGROUND_COLOR } = require('./src/config');
 const { getAllPairs } = require('./src/pairs');
 const { generateSessionPlan } = require('./src/randomization');
 const { buildTrialFrames } = require('./src/frames');
@@ -255,7 +256,38 @@ function installToyImageGrid() {
   if (layOutGrid()) observer.disconnect();
 }
 
+// Paints the attention getter's letterbox bars the study background
+// colour instead of black.
+//
+// THE BUG. The AG clips are 1280x720 (1.78) and play with
+// maximizeVideoArea on, so the video area is the whole viewport. Most
+// laptop screens are 16:10 (1.60), so the clip is letterboxed top and
+// bottom. frames.js used to claim this was invisible because the clip's
+// own background is rgb(50,50,50), the same as the frame - but the
+// letterbox area is NOT the frame showing through. It is the <video>
+// ELEMENT's own backdrop, which browsers paint black, so it reads as two
+// thin bars slightly darker than the background.
+//
+// WHY A STYLESHEET. exp-lookit-video's `backgroundColor` reaches the
+// frame, not the video element, and there is no frame property for the
+// element's own background. Injecting one rule is much less invasive
+// than the alternatives: cropping instead of letterboxing (object-fit:
+// cover) would cut into the shape, and the shape's horizontal position
+// is what encodes the AG's side - the known-gaze-direction reference the
+// whole frame exists to provide.
+//
+// Applies to the side bars too, on a viewport narrower than 16:9.
+function installVideoLetterboxColor() {
+  if (typeof document === 'undefined') return;
+  if (document.getElementById('ag-letterbox-color')) return;
+  const style = document.createElement('style');
+  style.id = 'ag-letterbox-color';
+  style.textContent = `#player-video { background-color: ${BACKGROUND_COLOR}; }`;
+  (document.head || document.documentElement).appendChild(style);
+}
+
 function generateProtocol(child, pastSessions) {
+  installVideoLetterboxColor();
   installPauseWhenHidden();
   installExitFullscreenOnExitSurvey();
   installToyImageGrid();
@@ -279,8 +311,8 @@ function generateProtocol(child, pastSessions) {
     'video-consent': VIDEO_CONSENT,
     'webcam-display-check': WEBCAM_DISPLAY_CHECK,
     ...trialFrames,
-    'study-debrief': STUDY_DEBRIEF,
     feedback: FEEDBACK_SURVEY,
+    'study-debrief': STUDY_DEBRIEF,
     'closing-router': CLOSING_ROUTER,
   };
 
@@ -306,8 +338,8 @@ function generateProtocol(child, pastSessions) {
     'video-consent',
     'webcam-display-check',
     ...trialSequence,
-    'study-debrief',
     'feedback',
+    'study-debrief',
     // Must stay LAST - it is where exitEarly() lands. See CLOSING_ROUTER.
     'closing-router',
   ];
