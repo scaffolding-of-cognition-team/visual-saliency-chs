@@ -166,9 +166,10 @@ const STUDY_INTRO_VIDEO = {
   instructionsVideo: [
     {
       // The extension must match the file on disk EXACTLY - a wrong one
-      // 404s silently, since the frame just emits <source src type>. This
-      // was .m4v (Apple's name for an MP4 container, also served as
-      // video/mp4) until the file was re-exported as .mp4 on 2026-09-23.
+      // 404s silently, since the frame just emits <source src type>. It
+      // has now been .m4v -> .mp4 (2026-09-23) -> .m4v (2026-09-24), so
+      // CHECK IT whenever the intro video is re-exported. .m4v is Apple's
+      // name for an MP4 container, so type: 'video/mp4' stays correct.
       //
       // Do NOT point this at a .mov: Firefox won't play a QuickTime
       // container, and `type` is what the browser uses to decide whether
@@ -176,7 +177,7 @@ const STUDY_INTRO_VIDEO = {
       //
       // The %20 is required - the folder really is "instruction videos"
       // with a space, and an unescaped space breaks the URL.
-      src: 'https://github.com/scaffolding-of-cognition-team/visual-saliency-chs/raw/main/instruction%20videos/chs_instructions_v2.mp4',
+      src: 'https://github.com/scaffolding-of-cognition-team/visual-saliency-chs/raw/main/instruction%20videos/chs_instructions_v2.m4v',
       type: 'video/mp4',
     },
   ],
@@ -286,7 +287,12 @@ const FINAL_SETUP_INSTRUCTIONS = {
       listblocks: [
         {
           text:
-            "Keep your child's body oriented towards the screen so they can look at it if they want to.",
+            "At this point, you can go get your child and set them up in a high chair or on your lap. Keep your child's body oriented towards the screen so they can look at it if they want to.",
+        },
+        {
+          text:
+          'Please put the laptop or computer close to your child, but far enough away that they cannot reach ' +
+            'forward and touch the keyboard.'
         },
         {
           text:
@@ -294,13 +300,7 @@ const FINAL_SETUP_INSTRUCTIONS = {
             "possible. This way, we'll be able to focus on where your baby is looking!",
         },
         {
-          // Kept from the old FINAL_SETUP_INSTRUCTIONS when the two frames
-          // merged. This is the ONLY place the parent is told the child
-          // has to be on camera during consent, and the consent form makes
-          // that an eligibility condition for the gift card ("your child's
-          // face must be visible during the consent process") - so a
-          // parent who records consent alone fails a check nothing else
-          // warns them about.
+       
           text:
             'On the next page, we will ask for your consent to take part <b>[1 minute]</b>. You will record a ' +
             "short video of yourself giving consent, and <b>your child's face needs to be visible in that " +
@@ -439,13 +439,12 @@ const STUDY_DEBRIEF = {
   debriefing: {
     title: 'Thank you!',
     emph: true,
-    text: 'Here is some more information about the study you and your child just participated in. Feel free to skip this part if you want.',
   
     blocks: [
       {
         text:
-          '<b>At this point, your child has completed the study and does not need to be present.</b> Feel ' +
-          'free to occupy them now before we wrap up.',
+          '<b>At this point, your child has completed the study and does not need to be present.</b> ' +
+          'Here is some more information about the study you and your child just participated in. Feel free to skip this part if you want.',
       },
       { text: '\n' },
       {
