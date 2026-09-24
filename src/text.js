@@ -1,7 +1,6 @@
 // All participant facing copy
 
-const { IMG_BASE_URL } = require('./config');
-const { STIMULI_BASE_URL, TRIAL_IMAGE_SUBFOLDER } = require('./config');
+const { IMG_BASE_URL, STIMULI_BASE_URL, TRIAL_IMAGE_SUBFOLDER } = require('./config');
 const { TOKENS, FAMILIARITIES, imageFilename } = require('./pairs');
 
 // The 12 trial images, as (value, label) pairs for the toy-experience
@@ -10,9 +9,11 @@ const { TOKENS, FAMILIARITIES, imageFilename } = require('./pairs');
 // build because scripts/build.js emits config.js and pairs.js before
 // text.js, so all three bindings already exist.
 //
-// Grouped by token (both exemplars of an object adjacent) so a parent can
-// compare the two side by side - that comparison is the whole point of
-// asking per image rather than per object.
+// ORDER IS THE LAYOUT. installToyImageGrid (protocol.js) drops these into
+// a 6-column CSS grid, which fills row by row - so listing all six
+// familiar exemplars and then all six unfamiliar ones puts one OBJECT per
+// column and one familiarity per row. Reordering this list silently
+// rearranges the grid.
 //
 // STORED VALUES ARE THE FILENAMES ('F_ball.png'), not the labels, so the
 // response joins directly against the trial data, which identifies images
@@ -22,22 +23,23 @@ const { TOKENS, FAMILIARITIES, imageFilename } = require('./pairs');
 // makes thumbnails possible at all - there is no image support anywhere
 // in exp-lookit-survey's own schema. The alt text carries the object name
 // so the option is still identifiable if an image fails to load.
-const TRIAL_IMAGE_OPTIONS = [...TOKENS].sort().flatMap((token) =>
-  FAMILIARITIES.map((familiarity) => {
+const TRIAL_IMAGE_OPTIONS = FAMILIARITIES.flatMap((familiarity) =>
+  [...TOKENS].sort().map((token) => {
     const file = imageFilename(familiarity, token);
     return {
       value: file,
       label:
         `<img src="${STIMULI_BASE_URL}${TRIAL_IMAGE_SUBFOLDER}/${file}" alt="${token}" ` +
-        'style="height:80px;width:80px;object-fit:contain;vertical-align:middle;' +
+        'style="width:80px;height:80px;max-width:100%;object-fit:contain;' +
         'background:#fff;border-radius:4px;padding:2px" />',
     };
   })
 );
-const TOY_EXPERIENCE_VALUES = TRIAL_IMAGE_OPTIONS.map((o) => o.value).concat(['none']);
-const TOY_EXPERIENCE_LABELS = TRIAL_IMAGE_OPTIONS.map((o) => o.label).concat([
-  'None of these',
-]);
+// 'none' first, so it reads as the opt-out above the grid rather than a
+// thirteenth picture. Its value is not a .png, which is also how
+// installToyImageGrid tells it apart from the images.
+const TOY_EXPERIENCE_VALUES = ['none'].concat(TRIAL_IMAGE_OPTIONS.map((o) => o.value));
+const TOY_EXPERIENCE_LABELS = ['None of these'].concat(TRIAL_IMAGE_OPTIONS.map((o) => o.label));
 
 // Pause / exit copy. Three separate behaviours, all real, all
 // parent-visible, so all three are spelled out rather than collapsed into
@@ -308,25 +310,39 @@ const SETUP_INSTRUCTIONS = {
 };
 
 
-const FINAL_REMINDERS = {
+// Merged from what used to be two frames, FINAL_REMINDERS followed by
+// FINAL_SETUP_INSTRUCTIONS - they overlapped heavily (both told the
+// parent to seat the child and keep their own face out of shot), so the
+// pair read as one instruction repeated twice.
+const FINAL_SETUP_INSTRUCTIONS = {
   kind: 'exp-lookit-instructions',
   displayFullscreenOverride: true,
   restartAfterPause: true,
   blocks: [
     {
-      title: 'Some final reminders!',
+      title: 'Time to get your child set up!',
       listblocks: [
         {
           text:
-            "Now, you can set your baby up in a high chair and stand or sit behind them. You can " +
-            'also sit in front of the computer with your child on your lap if you think they would prefer that ' +
-            "arrangement. During the study, try to keep your child's body oriented towards the screen so they " +
-            'can look at it if they want to.',
+            "Keep your child's body oriented towards the screen so they can look at it if they want to.",
         },
         {
           text:
             "Make sure that your child's eyes are fully visible, and that your eyes are out of frame, if " +
             "possible. This way, we'll be able to focus on where your baby is looking!",
+        },
+        {
+          // Kept from the old FINAL_SETUP_INSTRUCTIONS when the two frames
+          // merged. This is the ONLY place the parent is told the child
+          // has to be on camera during consent, and the consent form makes
+          // that an eligibility condition for the gift card ("your child's
+          // face must be visible during the consent process") - so a
+          // parent who records consent alone fails a check nothing else
+          // warns them about.
+          text:
+            'On the next page, we will ask for your consent to take part <b>[1 minute]</b>. You will record a ' +
+            "short video of yourself giving consent, and <b>your child's face needs to be visible in that " +
+            'recording</b>, so please have them with you before you continue.',
         },
       ],
     },
@@ -343,38 +359,6 @@ const FINAL_REMINDERS = {
           text:
             "Please avoid peeking over your child's shoulder to check their gaze, narrating the experiment, or " +
             'pointing at the screen.',
-        },
-      ],
-    },
-  ],
-  nextButtonText: 'Next',
-};
-
-const FINAL_SETUP_INSTRUCTIONS = {
-  kind: 'exp-lookit-instructions',
-  displayFullscreenOverride: true,
-  restartAfterPause: true,
-  blocks: [
-    {
-      title: 'Time to get your child set up!',
-      listblocks: [
-        { text: 'At this point, you can go get your child and set them up in a high chair or on your lap.' },
-        {
-          text:
-            'Please put the laptop or computer close to your child, but far enough away that they cannot reach ' +
-            'forward and touch the keyboard.',
-        },
-        {
-          text:
-            'On the next page, we will ask for your consent to take part <b>[1 minute]</b>. You will record a ' +
-            "short video of yourself giving consent, and <b>your child's face needs to be visible in that " +
-            'recording</b>, so please have them with you before you continue.',
-        },
-        {
-          text:
-            'After that, you will be able to check the webcam view. Please make sure that the webcam has a full ' +
-            "view of your child's face and their eyes. <b>Before you start the study, try to make sure that your " +
-            'face is not present in the camera.</b>',
         },
       ],
     },
@@ -514,7 +498,6 @@ const STUDY_DEBRIEF = {
     // never play a sequence. Anything that must reach every participant
     // has to be in this frame. Text is unchanged from the old outro.
     blocks: [
-      { emph: true, title: 'You and your child have completed the experiment! Awesome job!' },
       {
         text:
           'To wrap up, we will ask you a few questions that will take at most 2 minutes more. \n\n<b>At this ' +
@@ -529,21 +512,15 @@ const STUDY_DEBRIEF = {
       {
         text:
           "To begin, your child first viewed an 'attention-getter' (the colorful shapes and sounds) to ensure " +
-          'they were focused on the screen before each trial.',
-      },
-      {
-        text:
-          'Next, we presented two photos of objects side-by-side on the screen, followed by a verbal cue ' +
-          'instructing your child to look at one of the objects on screen.',
-      },
-      {
-        text:
-          'All these images are of unfamiliar toys that your child likely has not had real world experience with',
+          'they were focused on the screen before each trial. Next, we presented two photos of objects ' +
+          'side-by-side on the screen, followed by a verbal cue instructing your child to look at one of the ' +
+          'objects on screen. All these images are of unfamiliar toys that your child likely has not had ' +
+          'real-world experience with.',
       },
       {
         text:
           'Our goal was to measure at what age children begin to look at the correct image that corresponds ' +
-          'with the label, and if differences emerge when compared to children who have had real world ' +
+          'with the label, and if differences emerge when compared to children who have had real-world ' +
           'experience with some of the objects.',
       },
       {
@@ -650,7 +627,6 @@ module.exports = {
   SETUP_INSTRUCTIONS_1,
   STUDY_INTRO_VIDEO,
   SETUP_INSTRUCTIONS,
-  FINAL_REMINDERS,
   FINAL_SETUP_INSTRUCTIONS,
   WEBCAM_DISPLAY_CHECK,
   FEEDBACK_SURVEY,

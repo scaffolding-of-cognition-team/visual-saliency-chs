@@ -18,7 +18,6 @@ const {
   SETUP_INSTRUCTIONS_1,
   STUDY_INTRO_VIDEO,
   SETUP_INSTRUCTIONS,
-  FINAL_REMINDERS,
   FINAL_SETUP_INSTRUCTIONS,
   WEBCAM_DISPLAY_CHECK,
   FEEDBACK_SURVEY,
@@ -192,9 +191,74 @@ function installExitFullscreenOnExitSurvey() {
   if (leaveFullscreenIfExitSurveyShowing()) observer.disconnect();
 }
 
+// Lays the 12 trial-image checkboxes out as a 6-column grid: one object
+// per column, familiar exemplar on the top row and unfamiliar beneath.
+//
+// WHY IT IS NOT JUST CSS IN THE FRAME CONFIG. exp-lookit-survey renders
+// through {{dynamic-form}} -> AlpacaJS, and neither exposes any layout
+// control for a checkbox field - options come out as a plain vertical
+// list. There is also nowhere in the frame schema to put a stylesheet.
+//
+// The grid is therefore built by moving the rendered nodes. It keys off
+// OUR OWN option values (the image filenames end in .png; the 'none'
+// option does not), never off Alpaca's class names, so it does not break
+// if the form library restyles. Order comes from TOY_EXPERIENCE_VALUES in
+// text.js - all six familiar exemplars, then all six unfamiliar - which a
+// row-filling 6-column grid turns into one object per column.
+//
+// If this never runs, the question still works: it degrades to Alpaca's
+// normal vertical list with 'None of these' at the top.
+function installToyImageGrid() {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
+  if (window.__toyImageGridInstalled) return;
+  window.__toyImageGridInstalled = true;
+
+  function layOutGrid() {
+    var inputs = Array.prototype.slice.call(
+      document.querySelectorAll('input[type="checkbox"][value$=".png"]')
+    );
+    if (!inputs.length) return false;
+
+    // The clickable unit Alpaca wraps each option in varies by template,
+    // so take the nearest of the usual candidates rather than assuming.
+    var cells = inputs.map(function (input) {
+      return input.closest('.checkbox') || input.closest('label') || input.parentElement;
+    });
+    var host = cells[0] && cells[0].parentElement;
+    if (!host || host.getAttribute('data-toy-grid')) return true;
+
+    var grid = document.createElement('div');
+    grid.setAttribute('data-toy-grid-inner', '1');
+    grid.style.display = 'grid';
+    grid.style.gridTemplateColumns = 'repeat(6, minmax(0, 1fr))';
+    grid.style.gap = '6px 10px';
+    grid.style.justifyItems = 'center';
+    grid.style.alignItems = 'start';
+    grid.style.marginTop = '8px';
+
+    // Insert where the first image currently sits, so anything above it -
+    // the question title and the 'None of these' option - stays put.
+    host.insertBefore(grid, cells[0]);
+    cells.forEach(function (cell) {
+      cell.style.margin = '0';
+      grid.appendChild(cell);
+    });
+    host.setAttribute('data-toy-grid', '1');
+    return true;
+  }
+
+  if (typeof MutationObserver === 'undefined' || !document.body) return;
+  var observer = new MutationObserver(function () {
+    if (layOutGrid()) observer.disconnect();
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  if (layOutGrid()) observer.disconnect();
+}
+
 function generateProtocol(child, pastSessions) {
   installPauseWhenHidden();
   installExitFullscreenOnExitSurvey();
+  installToyImageGrid();
 
   const childSeed = getChildSeed(child);
   const sessionSeed = makeSessionSeed();
@@ -211,7 +275,6 @@ function generateProtocol(child, pastSessions) {
     'setup-instructions-1': SETUP_INSTRUCTIONS_1,
     'study-intro-video': STUDY_INTRO_VIDEO,
     'setup-instructions': SETUP_INSTRUCTIONS,
-    'final-reminders': FINAL_REMINDERS,
     'final-setup-instructions': FINAL_SETUP_INSTRUCTIONS,
     'video-consent': VIDEO_CONSENT,
     'webcam-display-check': WEBCAM_DISPLAY_CHECK,
@@ -239,7 +302,6 @@ function generateProtocol(child, pastSessions) {
     'setup-instructions-1',
     'study-intro-video',
     'setup-instructions',
-    'final-reminders',
     'final-setup-instructions',
     'video-consent',
     'webcam-display-check',
