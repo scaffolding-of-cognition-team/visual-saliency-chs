@@ -286,128 +286,55 @@ function installToyImageGrid() {
   if (layOutGrid()) observer.disconnect();
 }
 
-// Makes the attention getter's letterbox strips exactly the colour the
-// browser actually renders the video, rather than the colour we asked for.
+// Removes the attention getter's letterbox strips by letting the clip
+// fill the frame, so no CSS background is visible inside an AG at all.
 //
-// THE BUG. The AG clips are 1280x720 played with maximizeVideoArea on, so
-// on any viewport that is not 16:9 (most laptops are 16:10) object-fit:
+// THE PROBLEM. The clips are 1280x720 played with maximizeVideoArea on,
+// so on any viewport that is not 16:9 (most laptops are 16:10) object-fit:
 // contain letterboxes them, leaving a strip above and below. Those strips
-// are painted rgb(50,50,50) from CSS - and the clip's own background is
-// authored rgb(50,50,50) too - yet they were visible as slightly darker
-// bars. The reason is that a browser does not necessarily decode the
-// video to the value that went in: colour range/matrix handling differs
-// between software and hardware decode paths, so the same file can render
-// a few values lighter. CSS 50 against a video rendering ~59 is exactly
-// the seam that was reported.
+// are CSS rgb(50,50,50) and the clip's own background is authored
+// rgb(50,50,50), yet the seam between them is visible.
 //
-// Confirmed by putting a CSS rgb(50,50,50) swatch over the clip in a real
-// browser: the swatch edge was plainly visible. It is NOT reproducible
-// headlessly (software decode renders a clean 50), which is why an
-// earlier colour-tagging fix in make_ag_assets.py looked correct in
-// testing and changed nothing in practice. That tagging is still right,
-// just not sufficient.
+// WHY MATCHING THE COLOUR CANNOT WORK. The pixels are not the problem -
+// Chrome decodes these clips to exactly 50,50,50, with and without GPU
+// (measured via canvas readback, both headless modes). The difference
+// appears at DISPLAY time: macOS colour-manages tagged video through the
+// display profile, while a CSS colour is treated as plain sRGB, so on a
+// wide-gamut screen the same nominal grey lands on two slightly different
+// physical greys. Nothing in JS can observe that - getImageData returns
+// the pre-transform value - and no choice of CSS colour is correct on
+// every display profile.
 //
-// THE FIX. Stop guessing the value and measure it. A hidden probe video
-// loads one real AG clip with crossOrigin set (raw.githubusercontent.com
-// sends access-control-allow-origin: *, so the canvas is not tainted),
-// one frame is drawn to a canvas, and the decoded background pixel is
-// read back. The frame surrounds are then painted THAT colour, so they
-// match whatever this particular browser and GPU produce.
+// Two earlier attempts failed for exactly this reason and are recorded so
+// they are not retried: tagging the clips tv/bt709 in make_ag_assets.py
+// (correct, but the decode was never wrong), and sampling the decoded
+// pixel at runtime to paint the surrounds to match (reads 50, paints 50,
+// changes nothing).
 //
-// The probe is separate from the AG frames themselves on purpose: setting
-// crossOrigin on the real player would force a reload mid-playback, and
-// the AG is timed. It costs one extra fetch during setup, long before the
-// first trial.
+// THE FIX. object-fit: fill makes the clip stretch to the frame instead
+// of fitting inside it, so there are no strips to mismatch. The whole AG
+// screen is then video, and its background is the rgb(50,50,50) that was
+// authored into it.
 //
-// Degrades safely: the configured colour is applied immediately, so if
-// the probe fails to load, is blocked, or the canvas read throws, the
-// result is exactly the behaviour before this existed.
-//
-// Selectors are scoped to the video frame. An unscoped `div#image-area`
-// would also hit exp-lookit-images-audio's image area and override
-// pageColor on every trial.
-function installVideoLetterboxColor(sampleUrl) {
-  if (typeof document === 'undefined' || typeof window === 'undefined') return;
-  if (window.__agLetterboxInstalled) return;
-  window.__agLetterboxInstalled = true;
-
-  function paint(color) {
-    let style = document.getElementById('ag-letterbox-color');
-    if (!style) {
-      style = document.createElement('style');
-      style.id = 'ag-letterbox-color';
-      (document.head || document.documentElement).appendChild(style);
-    }
-    style.textContent =
-      '#player-video, div.exp-lookit-video, div.exp-lookit-video #image-area, ' +
-      'div.exp-lookit-video .story-image-container ' +
-      `{ background-color: ${color} !important; }`;
-  }
-
-  paint(BACKGROUND_COLOR);
-  if (!sampleUrl) return;
-
-  const probe = document.createElement('video');
-  probe.crossOrigin = 'anonymous';
-  probe.muted = true;
-  probe.defaultMuted = true;
-  probe.playsInline = true;
-  probe.preload = 'auto';
-  probe.src = sampleUrl;
-  probe.setAttribute('aria-hidden', 'true');
-  probe.style.cssText =
-    'position:fixed;left:-20px;top:-20px;width:2px;height:2px;opacity:0;pointer-events:none';
-
-  let finished = false;
-  function cleanUp() {
-    if (probe.parentNode) probe.parentNode.removeChild(probe);
-  }
-  function sample() {
-    if (finished || !probe.videoWidth) return;
-    finished = true;
-    try {
-      const canvas = document.createElement('canvas');
-      canvas.width = 8;
-      canvas.height = 8;
-      const ctx = canvas.getContext('2d');
-      // Copy an 8x8 patch from the clip's top-left corner, NOT the whole
-      // frame scaled down - the shape sits near the middle and would
-      // otherwise be averaged into the sample.
-      ctx.drawImage(probe, 0, 0, 8, 8, 0, 0, 8, 8);
-      const px = ctx.getImageData(2, 2, 1, 1).data;
-      paint(`rgb(${px[0]}, ${px[1]}, ${px[2]})`);
-    } catch (err) {
-      // Tainted canvas or a decode that is not ready: keep the fallback.
-    }
-    cleanUp();
-  }
-
-  probe.addEventListener('loadeddata', sample);
-  probe.addEventListener('canplay', sample);
-  probe.addEventListener('error', function () {
-    finished = true;
-    cleanUp();
-  });
-  (document.body || document.documentElement).appendChild(probe);
-}
-
-// The URL of the first attention-getter clip in this session's frames, so
-// the probe above measures a file the participant will actually see
-// rather than a filename duplicated from frames.js's naming scheme.
-function firstAttentionGetterUrl(trialFrames) {
-  for (const id of Object.keys(trialFrames)) {
-    const frame = trialFrames[id];
-    if (!frame || frame.kind !== 'group' || !frame.frameList) continue;
-    for (const sub of frame.frameList) {
-      if (sub.kind === 'exp-lookit-video' && sub.video && sub.video.source && sub.video.source[0]) {
-        return sub.video.source[0].src;
-      }
-    }
-  }
-  return null;
+// COST: a 16:9 clip on a 16:10 viewport is stretched ~11% vertically, so
+// shapes are slightly oval. Chosen over object-fit: cover, which removes
+// the strips by cropping the sides - and the shape's horizontal position
+// is what encodes the AG's side, the known-gaze-direction reference the
+// frame exists to provide. Stretching preserves horizontal position
+// exactly, as a fraction of width.
+function installVideoFillsFrame() {
+  if (typeof document === 'undefined') return;
+  if (document.getElementById('ag-video-fill')) return;
+  const style = document.createElement('style');
+  style.id = 'ag-video-fill';
+  // The frameplayer's own rule is `width/height: 100% !important` with
+  // object-fit: contain, so this needs !important to win.
+  style.textContent = '#player-video { object-fit: fill !important; }';
+  (document.head || document.documentElement).appendChild(style);
 }
 
 function generateProtocol(child, pastSessions) {
+  installVideoFillsFrame();
   installPauseWhenHidden();
   installExitFullscreenOnExitSurvey();
   installToyImageGrid();
@@ -420,7 +347,6 @@ function generateProtocol(child, pastSessions) {
   const allPairs = getAllPairs();
   const plan = generateSessionPlan({ childSeed, sessionSeed }, allPairs);
   const { frames: trialFrames, sequence: trialSequence } = buildTrialFrames(plan);
-  installVideoLetterboxColor(firstAttentionGetterUrl(trialFrames));
 
   const frames = {
     'welcome-instructions': WELCOME_INSTRUCTIONS,

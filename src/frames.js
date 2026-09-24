@@ -125,17 +125,12 @@ function buildAttentionGetterFrame(attentionGetter) {
       // 'fill' scales the clip up preserving aspect ratio, so a viewport
       // that is not 16:9 letterboxes the 1280x720 clip.
       //
-      // This comment used to claim the letterboxing was invisible
-      // because the clip's background matches the frame's. The colour was
-      // right; the ENCODING was not. The clips were untagged, so a player
-      // guessing full range rendered rgb(50,50,50) as 59 - visibly
-      // lighter than the strips around it. make_ag_assets.py now tags
-      // them tv/bt709, and installVideoLetterboxColor in protocol.js
-      // pins the strip colour as well.
-      //
-      // Not fixed by switching to object-fit: cover - cropping would eat
-      // into the shape, and the shape's horizontal position is what
-      // encodes the AG's side, which is the whole point of the frame.
+      // The strips this used to leave are gone: installVideoFillsFrame in
+      // protocol.js overrides object-fit to `fill`, so the clip stretches
+      // to the frame instead of fitting inside it. See that function for
+      // why matching the strip COLOUR was not possible (it is a display
+      // colour-management difference, not a decode one) and why `fill`
+      // was chosen over `cover`.
       position: 'fill',
       loop: false,
     },
