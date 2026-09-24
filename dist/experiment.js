@@ -1495,16 +1495,16 @@ const STUDY_DEBRIEF = {
       {
         text:
           'This was a study on how babies begin to understand early-learned nouns in their first two years of life.' +
-          "To begin, your child first viewed an 'attention-getter' (the colorful shapes and sounds) to ensure " +
-          'they were focused on the screen before each trial. Next, we presented two photos of objects ' +
+          "Your child first viewed an 'attention-getter' (the colorful shapes and sounds) to ensure " +
+          'they were focused on the screen before the trials began. Next, we presented two photos of objects ' +
           'side-by-side on the screen, followed by a verbal cue instructing your child to look at one of the ' +
           'objects on screen. All these images are of unfamiliar toys that your child likely has not had ' +
           'real-world experience with.',
       },
       {
         text:
-          'Our goal was to measure at what age children begin to look at the correct image that corresponds ' +
-          'with the label, and if differences emerge when compared to children who have had real-world ' +
+          'Our goal was to measure at what age infants begin to look at the correct image that corresponds ' +
+          'with the label, and if differences emerge across development, or when compared to babies who have had real-world ' +
           'experience with some of the objects.',
       },
       {
@@ -1514,12 +1514,9 @@ const STUDY_DEBRIEF = {
           'interesting than others in this dataset, and whether these preferences are stable across children.',
       },
       {
-        // exp-text-block renders `text` as HTML (the copy above relies on
-        // <b>/<u>/<i> elsewhere), so the anchor works as written. Single
-        // quotes inside, double quotes outside - the attributes must not
-        // terminate the JS string.
+    
         text:
-          "If you would like to learn more about this topic, you can check out this TED Talk: " +
+          "If you would like to learn more about early word learning, you can check out this TED Talk: " +
           "<a href='https://www.ted.com/talks/deb_roy_the_birth_of_a_word?subtitle=en' target='_blank' rel='noopener'>The Birth of a Word</a>",
       },
       {
@@ -1809,21 +1806,50 @@ function installToyImageGrid() {
   if (window.__toyImageGridInstalled) return;
   window.__toyImageGridInstalled = true;
 
-  function layOutGrid() {
-    var inputs = Array.prototype.slice.call(
-      document.querySelectorAll('input[type="checkbox"][value$=".png"]')
-    );
-    if (!inputs.length) return false;
+  // Keyed off the rendered <img> elements, NOT the checkbox `value`
+  // attribute. A first attempt used input[value$=".png"] and silently did
+  // nothing: Alpaca sets an option's value as a DOM property, so the
+  // attribute selector never matched. The images are the one thing we
+  // know is in the DOM, because we put them there (see
+  // TRIAL_IMAGE_OPTIONS in text.js) - and their src is the only marker
+  // Alpaca cannot rename.
+  const IMG_SELECTOR = 'img[src*="/' + TRIAL_IMAGE_SUBFOLDER + '/"]';
 
-    // The clickable unit Alpaca wraps each option in varies by template,
-    // so take the nearest of the usual candidates rather than assuming.
-    var cells = inputs.map(function (input) {
-      return input.closest('.checkbox') || input.closest('label') || input.parentElement;
-    });
-    var host = cells[0] && cells[0].parentElement;
+  // Deepest element containing every image. Whatever Alpaca wraps each
+  // option in, the options are all somewhere under this.
+  function commonAncestor(nodes) {
+    let node = nodes[0];
+    while (node && !nodes.every((n) => node.contains(n))) node = node.parentElement;
+    return node;
+  }
+
+  // The option's own row: walk up from the image until we are a direct
+  // child of the shared container. That lands on whichever wrapper Alpaca
+  // used (.checkbox, a bare <label>, a div) without having to name it.
+  function rowFor(node, host) {
+    let n = node;
+    while (n && n.parentElement && n.parentElement !== host) n = n.parentElement;
+    return n && n.parentElement === host ? n : null;
+  }
+
+  function layOutGrid() {
+    const images = Array.prototype.slice.call(document.querySelectorAll(IMG_SELECTOR));
+    if (images.length < 2) return false;
+
+    const host = commonAncestor(images);
     if (!host || host.getAttribute('data-toy-grid')) return true;
 
-    var grid = document.createElement('div');
+    const rows = [];
+    for (const img of images) {
+      const row = rowFor(img, host);
+      // A row per image, in DOM order, with no duplicates - if two images
+      // resolve to the same wrapper the layout assumption is wrong and it
+      // is better to leave the list alone than to scramble it.
+      if (!row || rows.indexOf(row) !== -1) return true;
+      rows.push(row);
+    }
+
+    const grid = document.createElement('div');
     grid.setAttribute('data-toy-grid-inner', '1');
     grid.style.display = 'grid';
     grid.style.gridTemplateColumns = 'repeat(6, minmax(0, 1fr))';
@@ -1832,52 +1858,148 @@ function installToyImageGrid() {
     grid.style.alignItems = 'start';
     grid.style.marginTop = '8px';
 
-    // Insert where the first image currently sits, so anything above it -
-    // the question title and the 'None of these' option - stays put.
-    host.insertBefore(grid, cells[0]);
-    cells.forEach(function (cell) {
-      cell.style.margin = '0';
-      grid.appendChild(cell);
+    // Anything above the first image - the question title and the 'None
+    // of these' option - keeps its place.
+    host.insertBefore(grid, rows[0]);
+    rows.forEach(function (row) {
+      row.style.margin = '0';
+      row.style.display = 'block';
+      grid.appendChild(row);
     });
     host.setAttribute('data-toy-grid', '1');
     return true;
   }
 
   if (typeof MutationObserver === 'undefined' || !document.body) return;
-  var observer = new MutationObserver(function () {
+  const observer = new MutationObserver(function () {
     if (layOutGrid()) observer.disconnect();
   });
   observer.observe(document.body, { childList: true, subtree: true });
   if (layOutGrid()) observer.disconnect();
 }
 
-// Belt-and-braces for the attention getter's letterbox strips.
+// Makes the attention getter's letterbox strips exactly the colour the
+// browser actually renders the video, rather than the colour we asked for.
 //
-// The AG clips are 1280x720, played with maximizeVideoArea on, so on any
-// viewport that is not 16:9 (most laptops are 16:10) object-fit: contain
-// letterboxes them and leaves a strip above and below. That strip is the
-// <video> element's own backdrop, and there is no frame property for it -
-// exp-lookit-video's `backgroundColor` applies to the frame around it.
-// This pins it to the study background so it cannot differ.
+// THE BUG. The AG clips are 1280x720 played with maximizeVideoArea on, so
+// on any viewport that is not 16:9 (most laptops are 16:10) object-fit:
+// contain letterboxes them, leaving a strip above and below. Those strips
+// are painted rgb(50,50,50) from CSS - and the clip's own background is
+// authored rgb(50,50,50) too - yet they were visible as slightly darker
+// bars. The reason is that a browser does not necessarily decode the
+// video to the value that went in: colour range/matrix handling differs
+// between software and hardware decode paths, so the same file can render
+// a few values lighter. CSS 50 against a video rendering ~59 is exactly
+// the seam that was reported.
 //
-// NOTE: this is NOT what made the bars visible. That was a colour-tagging
-// bug in the clips themselves - they were encoded untagged, so a player
-// guessing FULL range rendered the rgb(50,50,50) background as 59 and the
-// correctly-painted strips looked darker by comparison. Fixed at source
-// in scripts/make_ag_assets.py; the clips now carry an explicit tv/bt709
-// tag and decode back to exactly 50. This rule is kept because relying on
-// the element backdrop defaulting to something sensible is luck.
-function installVideoLetterboxColor() {
-  if (typeof document === 'undefined') return;
-  if (document.getElementById('ag-letterbox-color')) return;
-  const style = document.createElement('style');
-  style.id = 'ag-letterbox-color';
-  style.textContent = `#player-video { background-color: ${BACKGROUND_COLOR}; }`;
-  (document.head || document.documentElement).appendChild(style);
+// Confirmed by putting a CSS rgb(50,50,50) swatch over the clip in a real
+// browser: the swatch edge was plainly visible. It is NOT reproducible
+// headlessly (software decode renders a clean 50), which is why an
+// earlier colour-tagging fix in make_ag_assets.py looked correct in
+// testing and changed nothing in practice. That tagging is still right,
+// just not sufficient.
+//
+// THE FIX. Stop guessing the value and measure it. A hidden probe video
+// loads one real AG clip with crossOrigin set (raw.githubusercontent.com
+// sends access-control-allow-origin: *, so the canvas is not tainted),
+// one frame is drawn to a canvas, and the decoded background pixel is
+// read back. The frame surrounds are then painted THAT colour, so they
+// match whatever this particular browser and GPU produce.
+//
+// The probe is separate from the AG frames themselves on purpose: setting
+// crossOrigin on the real player would force a reload mid-playback, and
+// the AG is timed. It costs one extra fetch during setup, long before the
+// first trial.
+//
+// Degrades safely: the configured colour is applied immediately, so if
+// the probe fails to load, is blocked, or the canvas read throws, the
+// result is exactly the behaviour before this existed.
+//
+// Selectors are scoped to the video frame. An unscoped `div#image-area`
+// would also hit exp-lookit-images-audio's image area and override
+// pageColor on every trial.
+function installVideoLetterboxColor(sampleUrl) {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
+  if (window.__agLetterboxInstalled) return;
+  window.__agLetterboxInstalled = true;
+
+  function paint(color) {
+    let style = document.getElementById('ag-letterbox-color');
+    if (!style) {
+      style = document.createElement('style');
+      style.id = 'ag-letterbox-color';
+      (document.head || document.documentElement).appendChild(style);
+    }
+    style.textContent =
+      '#player-video, div.exp-lookit-video, div.exp-lookit-video #image-area, ' +
+      'div.exp-lookit-video .story-image-container ' +
+      `{ background-color: ${color} !important; }`;
+  }
+
+  paint(BACKGROUND_COLOR);
+  if (!sampleUrl) return;
+
+  const probe = document.createElement('video');
+  probe.crossOrigin = 'anonymous';
+  probe.muted = true;
+  probe.defaultMuted = true;
+  probe.playsInline = true;
+  probe.preload = 'auto';
+  probe.src = sampleUrl;
+  probe.setAttribute('aria-hidden', 'true');
+  probe.style.cssText =
+    'position:fixed;left:-20px;top:-20px;width:2px;height:2px;opacity:0;pointer-events:none';
+
+  let finished = false;
+  function cleanUp() {
+    if (probe.parentNode) probe.parentNode.removeChild(probe);
+  }
+  function sample() {
+    if (finished || !probe.videoWidth) return;
+    finished = true;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 8;
+      canvas.height = 8;
+      const ctx = canvas.getContext('2d');
+      // Copy an 8x8 patch from the clip's top-left corner, NOT the whole
+      // frame scaled down - the shape sits near the middle and would
+      // otherwise be averaged into the sample.
+      ctx.drawImage(probe, 0, 0, 8, 8, 0, 0, 8, 8);
+      const px = ctx.getImageData(2, 2, 1, 1).data;
+      paint(`rgb(${px[0]}, ${px[1]}, ${px[2]})`);
+    } catch (err) {
+      // Tainted canvas or a decode that is not ready: keep the fallback.
+    }
+    cleanUp();
+  }
+
+  probe.addEventListener('loadeddata', sample);
+  probe.addEventListener('canplay', sample);
+  probe.addEventListener('error', function () {
+    finished = true;
+    cleanUp();
+  });
+  (document.body || document.documentElement).appendChild(probe);
 }
 
-installVideoLetterboxColor();
-  installPauseWhenHidden();
+// The URL of the first attention-getter clip in this session's frames, so
+// the probe above measures a file the participant will actually see
+// rather than a filename duplicated from frames.js's naming scheme.
+function firstAttentionGetterUrl(trialFrames) {
+  for (const id of Object.keys(trialFrames)) {
+    const frame = trialFrames[id];
+    if (!frame || frame.kind !== 'group' || !frame.frameList) continue;
+    for (const sub of frame.frameList) {
+      if (sub.kind === 'exp-lookit-video' && sub.video && sub.video.source && sub.video.source[0]) {
+        return sub.video.source[0].src;
+      }
+    }
+  }
+  return null;
+}
+
+installPauseWhenHidden();
   installExitFullscreenOnExitSurvey();
   installToyImageGrid();
 
@@ -1889,6 +2011,7 @@ installVideoLetterboxColor();
   const allPairs = getAllPairs();
   const plan = generateSessionPlan({ childSeed, sessionSeed }, allPairs);
   const { frames: trialFrames, sequence: trialSequence } = buildTrialFrames(plan);
+  installVideoLetterboxColor(firstAttentionGetterUrl(trialFrames));
 
   const frames = {
     'welcome-instructions': WELCOME_INSTRUCTIONS,
