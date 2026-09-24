@@ -991,45 +991,6 @@ function buildTrialFrames(plan) {
 // All participant facing copy
 
 
-
-// The 12 trial images, as (value, label) pairs for the toy-experience
-// question below. Derived from pairs.js rather than retyped, so they
-// cannot drift out of sync with the actual stimuli; safe in the flattened
-// build because scripts/build.js emits config.js and pairs.js before
-// text.js, so all three bindings already exist.
-//
-// ORDER IS THE LAYOUT. installToyImageGrid (protocol.js) drops these into
-// a 6-column CSS grid, which fills row by row - so listing all six
-// familiar exemplars and then all six unfamiliar ones puts one OBJECT per
-// column and one familiarity per row. Reordering this list silently
-// rearranges the grid.
-//
-// STORED VALUES ARE THE FILENAMES ('F_ball.png'), not the labels, so the
-// response joins directly against the trial data, which identifies images
-// the same way. The labels are display only.
-//
-// LABELS ARE HTML. Alpaca renders optionLabels as markup, which is what
-// makes thumbnails possible at all - there is no image support anywhere
-// in exp-lookit-survey's own schema. The alt text carries the object name
-// so the option is still identifiable if an image fails to load.
-const TRIAL_IMAGE_OPTIONS = FAMILIARITIES.flatMap((familiarity) =>
-  [...TOKENS].sort().map((token) => {
-    const file = imageFilename(familiarity, token);
-    return {
-      value: file,
-      label:
-        `<img src="${STIMULI_BASE_URL}${TRIAL_IMAGE_SUBFOLDER}/${file}" alt="${token}" ` +
-        'style="width:80px;height:80px;max-width:100%;object-fit:contain;' +
-        'background:#fff;border-radius:4px;padding:2px" />',
-    };
-  })
-);
-// 'none' first, so it reads as the opt-out above the grid rather than a
-// thirteenth picture. Its value is not a .png, which is also how
-// installToyImageGrid tells it apart from the images.
-const TOY_EXPERIENCE_VALUES = ['none'].concat(TRIAL_IMAGE_OPTIONS.map((o) => o.value));
-const TOY_EXPERIENCE_LABELS = ['None of these'].concat(TRIAL_IMAGE_OPTIONS.map((o) => o.label));
-
 // Pause / exit copy. Three separate behaviours, all real, all
 // parent-visible, so all three are spelled out rather than collapsed into
 // "press escape":
@@ -1420,14 +1381,6 @@ const FEEDBACK_SURVEY = {
           },
           uniqueItems: true,
         },
-        'toy-experience': {
-          title:
-            'Has your child ever regularly played with any of these specific items in real life? ' +
-            'These are the exact pictures they saw. Select all that apply.',
-          type: 'array',
-          items: { type: 'string', enum: TOY_EXPERIENCE_VALUES },
-          uniqueItems: true,
-        },
         'miscellaneous-feedback': {
           title: 'Is there any other feedback that you would like to share about your experience with this study?',
           type: 'string',
@@ -1451,10 +1404,6 @@ const FEEDBACK_SURVEY = {
         'video-feedback': {
           type: 'checkbox',
           optionLabels: ["The videos buffered or didn't play smoothly", 'The videos took a long time to load'],
-        },
-        'toy-experience': {
-          type: 'checkbox',
-          optionLabels: TOY_EXPERIENCE_LABELS,
         },
       },
     },
@@ -1779,100 +1728,6 @@ function installExitFullscreenOnExitSurvey() {
   if (leaveFullscreenIfExitSurveyShowing()) observer.disconnect();
 }
 
-// Lays the 12 trial-image checkboxes out as a 6-column grid: one object
-// per column, familiar exemplar on the top row and unfamiliar beneath.
-//
-// WHY IT IS NOT JUST CSS IN THE FRAME CONFIG. exp-lookit-survey renders
-// through {{dynamic-form}} -> AlpacaJS, and neither exposes any layout
-// control for a checkbox field - options come out as a plain vertical
-// list. There is also nowhere in the frame schema to put a stylesheet.
-//
-// The grid is therefore built by moving the rendered nodes. It keys off
-// OUR OWN option values (the image filenames end in .png; the 'none'
-// option does not), never off Alpaca's class names, so it does not break
-// if the form library restyles. Order comes from TOY_EXPERIENCE_VALUES in
-// text.js - all six familiar exemplars, then all six unfamiliar - which a
-// row-filling 6-column grid turns into one object per column.
-//
-// If this never runs, the question still works: it degrades to Alpaca's
-// normal vertical list with 'None of these' at the top.
-function installToyImageGrid() {
-  if (typeof document === 'undefined' || typeof window === 'undefined') return;
-  if (window.__toyImageGridInstalled) return;
-  window.__toyImageGridInstalled = true;
-
-  // Keyed off the rendered <img> elements, NOT the checkbox `value`
-  // attribute. A first attempt used input[value$=".png"] and silently did
-  // nothing: Alpaca sets an option's value as a DOM property, so the
-  // attribute selector never matched. The images are the one thing we
-  // know is in the DOM, because we put them there (see
-  // TRIAL_IMAGE_OPTIONS in text.js) - and their src is the only marker
-  // Alpaca cannot rename.
-  const IMG_SELECTOR = 'img[src*="/' + TRIAL_IMAGE_SUBFOLDER + '/"]';
-
-  // Deepest element containing every image. Whatever Alpaca wraps each
-  // option in, the options are all somewhere under this.
-  function commonAncestor(nodes) {
-    let node = nodes[0];
-    while (node && !nodes.every((n) => node.contains(n))) node = node.parentElement;
-    return node;
-  }
-
-  // The option's own row: walk up from the image until we are a direct
-  // child of the shared container. That lands on whichever wrapper Alpaca
-  // used (.checkbox, a bare <label>, a div) without having to name it.
-  function rowFor(node, host) {
-    let n = node;
-    while (n && n.parentElement && n.parentElement !== host) n = n.parentElement;
-    return n && n.parentElement === host ? n : null;
-  }
-
-  function layOutGrid() {
-    const images = Array.prototype.slice.call(document.querySelectorAll(IMG_SELECTOR));
-    if (images.length < 2) return false;
-
-    const host = commonAncestor(images);
-    if (!host || host.getAttribute('data-toy-grid')) return true;
-
-    const rows = [];
-    for (const img of images) {
-      const row = rowFor(img, host);
-      // A row per image, in DOM order, with no duplicates - if two images
-      // resolve to the same wrapper the layout assumption is wrong and it
-      // is better to leave the list alone than to scramble it.
-      if (!row || rows.indexOf(row) !== -1) return true;
-      rows.push(row);
-    }
-
-    const grid = document.createElement('div');
-    grid.setAttribute('data-toy-grid-inner', '1');
-    grid.style.display = 'grid';
-    grid.style.gridTemplateColumns = 'repeat(6, minmax(0, 1fr))';
-    grid.style.gap = '6px 10px';
-    grid.style.justifyItems = 'center';
-    grid.style.alignItems = 'start';
-    grid.style.marginTop = '8px';
-
-    // Anything above the first image - the question title and the 'None
-    // of these' option - keeps its place.
-    host.insertBefore(grid, rows[0]);
-    rows.forEach(function (row) {
-      row.style.margin = '0';
-      row.style.display = 'block';
-      grid.appendChild(row);
-    });
-    host.setAttribute('data-toy-grid', '1');
-    return true;
-  }
-
-  if (typeof MutationObserver === 'undefined' || !document.body) return;
-  const observer = new MutationObserver(function () {
-    if (layOutGrid()) observer.disconnect();
-  });
-  observer.observe(document.body, { childList: true, subtree: true });
-  if (layOutGrid()) observer.disconnect();
-}
-
 // Removes the attention getter's letterbox strips by letting the clip
 // fill the frame, so no CSS background is visible inside an AG at all.
 //
@@ -1923,7 +1778,6 @@ function installVideoFillsFrame() {
 installVideoFillsFrame();
   installPauseWhenHidden();
   installExitFullscreenOnExitSurvey();
-  installToyImageGrid();
 
   const childSeed = getChildSeed(child);
   const sessionSeed = makeSessionSeed();

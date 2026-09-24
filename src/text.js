@@ -1,45 +1,7 @@
 // All participant facing copy
 
-const { IMG_BASE_URL, STIMULI_BASE_URL, TRIAL_IMAGE_SUBFOLDER } = require('./config');
-const { TOKENS, FAMILIARITIES, imageFilename } = require('./pairs');
+const { IMG_BASE_URL } = require('./config');
 
-// The 12 trial images, as (value, label) pairs for the toy-experience
-// question below. Derived from pairs.js rather than retyped, so they
-// cannot drift out of sync with the actual stimuli; safe in the flattened
-// build because scripts/build.js emits config.js and pairs.js before
-// text.js, so all three bindings already exist.
-//
-// ORDER IS THE LAYOUT. installToyImageGrid (protocol.js) drops these into
-// a 6-column CSS grid, which fills row by row - so listing all six
-// familiar exemplars and then all six unfamiliar ones puts one OBJECT per
-// column and one familiarity per row. Reordering this list silently
-// rearranges the grid.
-//
-// STORED VALUES ARE THE FILENAMES ('F_ball.png'), not the labels, so the
-// response joins directly against the trial data, which identifies images
-// the same way. The labels are display only.
-//
-// LABELS ARE HTML. Alpaca renders optionLabels as markup, which is what
-// makes thumbnails possible at all - there is no image support anywhere
-// in exp-lookit-survey's own schema. The alt text carries the object name
-// so the option is still identifiable if an image fails to load.
-const TRIAL_IMAGE_OPTIONS = FAMILIARITIES.flatMap((familiarity) =>
-  [...TOKENS].sort().map((token) => {
-    const file = imageFilename(familiarity, token);
-    return {
-      value: file,
-      label:
-        `<img src="${STIMULI_BASE_URL}${TRIAL_IMAGE_SUBFOLDER}/${file}" alt="${token}" ` +
-        'style="width:80px;height:80px;max-width:100%;object-fit:contain;' +
-        'background:#fff;border-radius:4px;padding:2px" />',
-    };
-  })
-);
-// 'none' first, so it reads as the opt-out above the grid rather than a
-// thirteenth picture. Its value is not a .png, which is also how
-// installToyImageGrid tells it apart from the images.
-const TOY_EXPERIENCE_VALUES = ['none'].concat(TRIAL_IMAGE_OPTIONS.map((o) => o.value));
-const TOY_EXPERIENCE_LABELS = ['None of these'].concat(TRIAL_IMAGE_OPTIONS.map((o) => o.label));
 
 // Pause / exit copy. Three separate behaviours, all real, all
 // parent-visible, so all three are spelled out rather than collapsed into
@@ -431,14 +393,6 @@ const FEEDBACK_SURVEY = {
           },
           uniqueItems: true,
         },
-        'toy-experience': {
-          title:
-            'Has your child ever regularly played with any of these specific items in real life? ' +
-            'These are the exact pictures they saw. Select all that apply.',
-          type: 'array',
-          items: { type: 'string', enum: TOY_EXPERIENCE_VALUES },
-          uniqueItems: true,
-        },
         'miscellaneous-feedback': {
           title: 'Is there any other feedback that you would like to share about your experience with this study?',
           type: 'string',
@@ -462,10 +416,6 @@ const FEEDBACK_SURVEY = {
         'video-feedback': {
           type: 'checkbox',
           optionLabels: ["The videos buffered or didn't play smoothly", 'The videos took a long time to load'],
-        },
-        'toy-experience': {
-          type: 'checkbox',
-          optionLabels: TOY_EXPERIENCE_LABELS,
         },
       },
     },
