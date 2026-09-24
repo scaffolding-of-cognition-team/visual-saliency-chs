@@ -1775,6 +1775,90 @@ function installVideoFillsFrame() {
   (document.head || document.documentElement).appendChild(style);
 }
 
+// Warms the browser cache with the trial stimuli while the parent is
+// still reading the setup instructions.
+//
+// THE PROBLEM. exp-lookit-images-audio's template renders each image as a
+// plain <img src=...> with no gating, so the browser paints each one the
+// moment its own fetch finishes. The component does preload via
+// `new Image()` and holds startTrial() until image_loaded_count reaches
+// nImages, but that only gates the TIMER - the pictures themselves are
+// already on screen by then. On trial 1 nothing is cached, the two images
+// are ~1 MB each from GitHub raw (not a CDN), and they arrive whenever
+// they arrive: hence one appearing before the other.
+//
+// From trial 2 on it is invisible, because the study only has 12 distinct
+// images and they are all cached by then. That is exactly why this shows
+// up on the first trial and nowhere else.
+//
+// THE FIX. Kick off the fetches at protocol-generation time, which is
+// study start - minutes of consent and setup frames before the trial
+// block. By the time trial 1 runs the images are in cache and paint
+// together. Nothing waits on this: if it has not finished, behaviour is
+// exactly what it is today.
+//
+// The first attention-getter clip is included because it plays
+// immediately before trial 1 and is the other cold fetch in that window.
+// The rest are deliberately NOT preloaded - all 30 come to ~19 MB, and
+// they are spread across the session with an ISI before each.
+//
+// References are parked on window so the objects are not garbage
+// collected before the cache entry is used.
+function installStimulusPreload(imageUrls, firstVideoUrl) {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
+  if (window.__stimulusPreloadInstalled) return;
+  window.__stimulusPreloadInstalled = true;
+
+  const held = [];
+  imageUrls.forEach(function (url) {
+    const img = new Image();
+    img.src = url;
+    held.push(img);
+  });
+
+  if (firstVideoUrl) {
+    const video = document.createElement('video');
+    video.preload = 'auto';
+    video.muted = true;
+    video.src = firstVideoUrl;
+    held.push(video);
+  }
+
+  window.__preloadedStimuli = held;
+}
+
+// Every distinct trial-image URL in this session's frames, taken from the
+// built frames rather than rebuilt from config, so it cannot disagree
+// with what the trials actually request.
+function trialImageUrls(trialFrames) {
+  const urls = [];
+  for (const id of Object.keys(trialFrames)) {
+    const frame = trialFrames[id];
+    if (!frame || frame.kind !== 'group' || !frame.frameList) continue;
+    for (const sub of frame.frameList) {
+      if (!Array.isArray(sub.images)) continue;
+      for (const image of sub.images) {
+        if (image && image.src && urls.indexOf(image.src) === -1) urls.push(image.src);
+      }
+    }
+  }
+  return urls;
+}
+
+// The first attention-getter clip in this session, for the same reason.
+function firstAttentionGetterUrl(trialFrames) {
+  for (const id of Object.keys(trialFrames)) {
+    const frame = trialFrames[id];
+    if (!frame || frame.kind !== 'group' || !frame.frameList) continue;
+    for (const sub of frame.frameList) {
+      if (sub.kind === 'exp-lookit-video' && sub.video && sub.video.source && sub.video.source[0]) {
+        return sub.video.source[0].src;
+      }
+    }
+  }
+  return null;
+}
+
 installVideoFillsFrame();
   installPauseWhenHidden();
   installExitFullscreenOnExitSurvey();
@@ -1787,6 +1871,7 @@ installVideoFillsFrame();
   const allPairs = getAllPairs();
   const plan = generateSessionPlan({ childSeed, sessionSeed }, allPairs);
   const { frames: trialFrames, sequence: trialSequence } = buildTrialFrames(plan);
+  installStimulusPreload(trialImageUrls(trialFrames), firstAttentionGetterUrl(trialFrames));
 
   const frames = {
     'welcome-instructions': WELCOME_INSTRUCTIONS,
