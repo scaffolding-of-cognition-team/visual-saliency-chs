@@ -366,13 +366,13 @@ for (const familiarity of FAMILIARITIES) {
     const id = `${familiarity}_${token}`;
     ITEM_EXPERIENCE_IDS.push(id);
     ITEM_EXPERIENCE_LABELS.push(
-      `<img src="${STIMULI_BASE_URL}${TRIAL_IMAGE_SUBFOLDER}/${id}.png" alt="${token}">`,
+      `<img class="item-experience-img" src="${STIMULI_BASE_URL}${TRIAL_IMAGE_SUBFOLDER}/${id}.png" alt="${token}">`,
     );
   }
 }
 // Explicit "none", so an empty answer means skipped rather than "has none
-// of them". Must stay last - installItemExperienceGrid in protocol.js puts
-// the last option on its own row below the grid.
+// of them". installItemExperienceGrid in protocol.js tells it apart from
+// the pictures by its having no .item-experience-img.
 ITEM_EXPERIENCE_IDS.push('none');
 ITEM_EXPERIENCE_LABELS.push('None of these');
 
@@ -442,9 +442,6 @@ const FEEDBACK_SURVEY = {
         'item-experience': {
           type: 'checkbox',
           optionLabels: ITEM_EXPERIENCE_LABELS,
-          // Hook for installItemExperienceGrid in protocol.js, which lays
-          // the options out as 2 rows x 6 columns.
-          fieldClass: 'item-experience-grid',
         },
       },
     },

@@ -240,76 +240,128 @@ function installVideoFillsFrame() {
 }
 
 // Lays out the wrap-up survey's item-experience checklist (FEEDBACK_SURVEY
-// in src/text.js) as 2 rows x 6 columns of pictures. Alpaca renders
-// checkbox options as a vertical stack of div.checkbox, and the survey
-// sits in a narrow column, so the grid is widened past that column to
-// most of the viewport, centred, to keep the pictures large.
+// in src/text.js) as 2 rows x 6 columns of small pictures, with "None of
+// these" on its own row below, and makes "None of these" mutually
+// exclusive with the pictures.
 //
-// The grid goes on whatever element directly holds the div.checkbox
-// options (via :has) rather than a named Alpaca wrapper class, so it does
-// not depend on Alpaca's internal template structure.
-function installItemExperienceGrid() {
-  if (typeof document === 'undefined') return;
-  if (document.getElementById('item-experience-grid')) return;
-  const style = document.createElement('style');
-  style.id = 'item-experience-grid';
-  style.textContent = [
-    '.item-experience-grid :has(> .checkbox) {',
-    '  display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px;',
-    '  width: min(95vw, 1400px); position: relative; left: 50%; transform: translateX(-50%);',
-    '}',
-    '.item-experience-grid .checkbox { margin: 0; }',
-    '.item-experience-grid .checkbox label {',
-    '  display: flex; flex-direction: column-reverse; align-items: center; gap: 6px;',
-    '  padding: 0; cursor: pointer;',
-    '}',
-    '.item-experience-grid .checkbox input[type=checkbox] {',
-    '  position: static; margin: 0; width: 20px; height: 20px;',
-    '}',
-    '.item-experience-grid .checkbox img {',
-    '  display: block; width: 100%; aspect-ratio: 1; object-fit: contain;',
-    '  border: 3px solid transparent; border-radius: 6px;',
-    '}',
-    '.item-experience-grid .checkbox label:has(input:checked) img { border-color: #337ab7; }',
-    // "None of these" (always the last option): its own full-width row,
-    // spaced off the pictures, checkbox beside the text rather than under.
-    '.item-experience-grid .checkbox:last-child { grid-column: 1 / -1; margin-top: 16px; }',
-    '.item-experience-grid .checkbox:last-child label {',
-    '  flex-direction: row-reverse; justify-content: flex-end; gap: 8px; font-size: 1.1em;',
-    '}',
-    // Break between the checklist and whatever follows it.
-    '.item-experience-grid { margin-bottom: 32px; }',
-  ].join('\n');
-  (document.head || document.documentElement).appendChild(style);
+// Nothing here assumes Alpaca's markup. A first version keyed everything
+// off Bootstrap's div.checkbox wrapper and a fieldClass, matched nothing in
+// Lookit, and left each picture at its natural 800px. Instead the only
+// hook is the .item-experience-img class text.js puts on each picture, and
+// the structure is found from there when the survey renders:
+//
+//   option     the highest ancestor of an input that holds no other input
+//              - the whole per-option wrapper, whatever Alpaca calls it.
+//   container  the options' shared parent, which becomes the grid.
+//   none       the one option in it with no picture.
+//
+// The image size cap is plain CSS on the picture itself, so it holds even
+// if the layout step never runs.
+const ITEM_EXPERIENCE_CSS = [
+  '.item-experience-img { display: block; width: 100%; max-width: 110px; height: auto; margin: 0 auto; }',
+  '.item-experience-img { border: 3px solid transparent; border-radius: 6px; }',
+  '.item-experience-grid {',
+  '  display: grid; grid-template-columns: repeat(6, minmax(0, 110px)); gap: 10px;',
+  '  justify-content: start; margin-bottom: 32px;',
+  '}',
+  // The question text and anything else in there that is not an option
+  // gets its own full-width row.
+  '.item-experience-grid > :not(.item-experience-option) { grid-column: 1 / -1; }',
+  '.item-experience-option { margin: 0; text-align: center; }',
+  '.item-experience-option label { display: block; margin: 0; padding: 0; cursor: pointer; }',
+  '.item-experience-option input[type=checkbox] { position: static; margin: 4px auto 0; display: block; }',
+  '.item-experience-option.item-experience-checked .item-experience-img { border-color: #337ab7; }',
+  '.item-experience-none { grid-column: 1 / -1; margin-top: 12px; text-align: left; }',
+  '.item-experience-none label { display: flex; align-items: center; gap: 8px; }',
+  '.item-experience-none input[type=checkbox] { margin: 0; }',
+].join('\n');
+
+function optionOf(input) {
+  let option = input;
+  while (option.parentElement && option.parentElement.querySelectorAll('input[type=checkbox]').length === 1) {
+    option = option.parentElement;
+  }
+  return option;
 }
 
-// Makes the item-experience checklist's "None of these" (its last option)
-// mutually exclusive with the pictures: checking it clears every picture,
-// and checking a picture clears it.
-//
-// Alpaca keeps its own copy of the field's value, updated from its change
-// handler on each input, and setting .checked from JS fires no event - so
-// each box this clears gets a synthetic `change` too, or the saved answer
-// would still include it. The handler ignores unchecks, so those
-// synthetic events do not cascade.
-function installItemExperienceExclusiveNone() {
-  if (typeof document === 'undefined') return;
-  if (window.__itemExperienceExclusiveNoneInstalled) return;
-  window.__itemExperienceExclusiveNoneInstalled = true;
+function layOutItemExperience(container) {
+  const inputs = Array.prototype.slice.call(container.querySelectorAll('input[type=checkbox]'));
+  container.classList.add('item-experience-grid');
+  inputs.forEach(function (input) {
+    const option = optionOf(input);
+    option.classList.add('item-experience-option');
+    if (!option.querySelector('.item-experience-img')) option.classList.add('item-experience-none');
+    // Moved to the end - picture first, checkbox under it - unless this is
+    // "None of these", which keeps its checkbox beside the text.
+    const label = input.closest('label');
+    if (label && label.querySelector('.item-experience-img')) label.appendChild(input);
+  });
+  refreshCheckedHighlight(container);
+}
 
+function refreshCheckedHighlight(container) {
+  container.querySelectorAll('.item-experience-option').forEach(function (option) {
+    const input = option.querySelector('input[type=checkbox]');
+    option.classList.toggle('item-experience-checked', !!(input && input.checked));
+  });
+}
+
+function findUnlaidItemExperience() {
+  const img = document.querySelector('.item-experience-img');
+  if (!img) return null;
+  // Nearest checkbox to the picture: usually inside the same label, but
+  // walk up rather than assume so, in case the input sits beside it.
+  let input = null;
+  for (let node = img.parentElement; node && !input; node = node.parentElement) {
+    input = node.querySelector('input[type=checkbox]');
+  }
+  if (!input) return null;
+  const option = optionOf(input);
+  const container = option.parentElement;
+  if (!container || container.classList.contains('item-experience-grid')) return null;
+  return container;
+}
+
+function installItemExperienceGrid() {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
+  if (window.__itemExperienceGridInstalled) return;
+  window.__itemExperienceGridInstalled = true;
+
+  const style = document.createElement('style');
+  style.id = 'item-experience-grid';
+  style.textContent = ITEM_EXPERIENCE_CSS;
+  (document.head || document.documentElement).appendChild(style);
+
+  // The survey renders minutes after generateProtocol runs, and could
+  // render more than once (e.g. going back to it), so keep watching rather
+  // than disconnecting after the first layout.
+  if (typeof MutationObserver === 'undefined' || !document.body) return;
+  const observer = new MutationObserver(function () {
+    const container = findUnlaidItemExperience();
+    if (container) layOutItemExperience(container);
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  // Mutual exclusivity. Alpaca keeps its own copy of the field's value,
+  // updated from its change handler on each input, and setting .checked
+  // from JS fires no event - so each box cleared here gets a synthetic
+  // `change` too, or the saved answer would still include it. Unchecks
+  // are ignored, so those synthetic events do not cascade.
   document.addEventListener('change', function (event) {
     const input = event.target;
-    if (!input || input.type !== 'checkbox' || !input.checked) return;
-    const grid = input.closest('.item-experience-grid');
-    if (!grid) return;
-    const options = Array.prototype.slice.call(grid.querySelectorAll('.checkbox input[type=checkbox]'));
-    const none = options[options.length - 1];
-    const toClear = input === none ? options.slice(0, -1) : [none];
-    toClear.forEach(function (other) {
-      if (!other.checked) return;
-      other.checked = false;
-      other.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    if (!input || input.type !== 'checkbox') return;
+    const container = input.closest('.item-experience-grid');
+    if (!container) return;
+    if (input.checked) {
+      const isNone = !!input.closest('.item-experience-none');
+      container.querySelectorAll('input[type=checkbox]').forEach(function (other) {
+        if (other === input || !other.checked) return;
+        if (isNone === !!other.closest('.item-experience-none')) return;
+        other.checked = false;
+        other.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    }
+    refreshCheckedHighlight(container);
   });
 }
 
@@ -402,7 +454,6 @@ function generateProtocol(child, pastSessions) {
   installPauseWhenHidden();
   installExitFullscreenOnExitSurvey();
   installItemExperienceGrid();
-  installItemExperienceExclusiveNone();
 
   const childSeed = getChildSeed(child);
   const sessionSeed = makeSessionSeed();
