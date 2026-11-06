@@ -362,13 +362,6 @@ const FEEDBACK_SURVEY = {
       type: 'object',
       title: 'Wrap-up Questions',
       properties: {
-        email: {
-          title:
-            'Please provide your email so we can send your $5 e-gift card. Your email will be exclusively ' +
-            'utilized for the purpose of delivering your compensation.',
-          type: 'string',
-          format: 'email',
-        },
         'instructions-feedback': {
           // Every other field here has a title; this one never did, so the
           // 1-5 radios rendered with no question above them. Alpaca falls
@@ -398,7 +391,6 @@ const FEEDBACK_SURVEY = {
           type: 'string',
         },
       },
-      required: ['email'],
     },
     options: {
       fields: {
