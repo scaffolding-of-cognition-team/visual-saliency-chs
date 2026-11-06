@@ -1,6 +1,7 @@
 // All participant facing copy
 
-const { IMG_BASE_URL } = require('./config');
+const { IMG_BASE_URL, STIMULI_BASE_URL, TRIAL_IMAGE_SUBFOLDER } = require('./config');
+const { TOKENS, FAMILIARITIES } = require('./pairs');
 
 
 // Pause / exit copy. Three separate behaviours, all real, all
@@ -354,6 +355,27 @@ const WEBCAM_DISPLAY_CHECK = {
   ],
 };
 
+// Real-world-experience checklist: one checkbox per trial image, shown as
+// the picture itself. One row per familiarity, one column per token, so
+// the 12 images form the 2 x 6 grid. Stored values are the image filename
+// stems ("F_car"), so they join directly against imageA/imageB.
+const ITEM_EXPERIENCE_IDS = [];
+const ITEM_EXPERIENCE_LABELS = [];
+for (const familiarity of FAMILIARITIES) {
+  for (const token of TOKENS) {
+    const id = `${familiarity}_${token}`;
+    ITEM_EXPERIENCE_IDS.push(id);
+    ITEM_EXPERIENCE_LABELS.push(
+      `<img src="${STIMULI_BASE_URL}${TRIAL_IMAGE_SUBFOLDER}/${id}.png" alt="${token}">`,
+    );
+  }
+}
+// Explicit "none", so an empty answer means skipped rather than "has none
+// of them". Must stay last - installItemExperienceGrid in protocol.js puts
+// the last option on its own row below the grid.
+ITEM_EXPERIENCE_IDS.push('none');
+ITEM_EXPERIENCE_LABELS.push('None of these');
+
 const FEEDBACK_SURVEY = {
   kind: 'exp-lookit-survey',
   displayFullscreenOverride: true,
@@ -392,9 +414,11 @@ const FEEDBACK_SURVEY = {
         },
         'item-experience': {
           title:
-            'Does your child have any of the specific items shown in the pictures (for example, the exact same ' +
-            'toy car or ball) in their everyday life? If so, which ones?',
-          type: 'string',
+            'Does your child have any of these exact items in their everyday life (for example, the exact same ' +
+            'toy car or ball)? Please check all that apply.',
+          type: 'array',
+          items: { type: 'string', enum: ITEM_EXPERIENCE_IDS },
+          uniqueItems: true,
         },
       },
     },
@@ -414,6 +438,13 @@ const FEEDBACK_SURVEY = {
         'video-feedback': {
           type: 'checkbox',
           optionLabels: ["The videos buffered or didn't play smoothly", 'The videos took a long time to load'],
+        },
+        'item-experience': {
+          type: 'checkbox',
+          optionLabels: ITEM_EXPERIENCE_LABELS,
+          // Hook for installItemExperienceGrid in protocol.js, which lays
+          // the options out as 2 rows x 6 columns.
+          fieldClass: 'item-experience-grid',
         },
       },
     },

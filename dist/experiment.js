@@ -991,6 +991,7 @@ function buildTrialFrames(plan) {
 // All participant facing copy
 
 
+
 // Pause / exit copy. Three separate behaviours, all real, all
 // parent-visible, so all three are spelled out rather than collapsed into
 // "press escape":
@@ -1342,6 +1343,27 @@ const WEBCAM_DISPLAY_CHECK = {
   ],
 };
 
+// Real-world-experience checklist: one checkbox per trial image, shown as
+// the picture itself. One row per familiarity, one column per token, so
+// the 12 images form the 2 x 6 grid. Stored values are the image filename
+// stems ("F_car"), so they join directly against imageA/imageB.
+const ITEM_EXPERIENCE_IDS = [];
+const ITEM_EXPERIENCE_LABELS = [];
+for (const familiarity of FAMILIARITIES) {
+  for (const token of TOKENS) {
+    const id = `${familiarity}_${token}`;
+    ITEM_EXPERIENCE_IDS.push(id);
+    ITEM_EXPERIENCE_LABELS.push(
+      `<img src="${STIMULI_BASE_URL}${TRIAL_IMAGE_SUBFOLDER}/${id}.png" alt="${token}">`,
+    );
+  }
+}
+// Explicit "none", so an empty answer means skipped rather than "has none
+// of them". Must stay last - installItemExperienceGrid in protocol.js puts
+// the last option on its own row below the grid.
+ITEM_EXPERIENCE_IDS.push('none');
+ITEM_EXPERIENCE_LABELS.push('None of these');
+
 const FEEDBACK_SURVEY = {
   kind: 'exp-lookit-survey',
   displayFullscreenOverride: true,
@@ -1380,9 +1402,11 @@ const FEEDBACK_SURVEY = {
         },
         'item-experience': {
           title:
-            'Does your child have any of the specific items shown in the pictures (for example, the exact same ' +
-            'toy car or ball) in their everyday life? If so, which ones?',
-          type: 'string',
+            'Does your child have any of these exact items in their everyday life (for example, the exact same ' +
+            'toy car or ball)? Please check all that apply.',
+          type: 'array',
+          items: { type: 'string', enum: ITEM_EXPERIENCE_IDS },
+          uniqueItems: true,
         },
       },
     },
@@ -1402,6 +1426,13 @@ const FEEDBACK_SURVEY = {
         'video-feedback': {
           type: 'checkbox',
           optionLabels: ["The videos buffered or didn't play smoothly", 'The videos took a long time to load'],
+        },
+        'item-experience': {
+          type: 'checkbox',
+          optionLabels: ITEM_EXPERIENCE_LABELS,
+          // Hook for installItemExperienceGrid in protocol.js, which lays
+          // the options out as 2 rows x 6 columns.
+          fieldClass: 'item-experience-grid',
         },
       },
     },
@@ -1772,6 +1803,80 @@ function installVideoFillsFrame() {
   (document.head || document.documentElement).appendChild(style);
 }
 
+// Lays out the wrap-up survey's item-experience checklist (FEEDBACK_SURVEY
+// in src/text.js) as 2 rows x 6 columns of pictures. Alpaca renders
+// checkbox options as a vertical stack of div.checkbox, and the survey
+// sits in a narrow column, so the grid is widened past that column to
+// most of the viewport, centred, to keep the pictures large.
+//
+// The grid goes on whatever element directly holds the div.checkbox
+// options (via :has) rather than a named Alpaca wrapper class, so it does
+// not depend on Alpaca's internal template structure.
+function installItemExperienceGrid() {
+  if (typeof document === 'undefined') return;
+  if (document.getElementById('item-experience-grid')) return;
+  const style = document.createElement('style');
+  style.id = 'item-experience-grid';
+  style.textContent = [
+    '.item-experience-grid :has(> .checkbox) {',
+    '  display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px;',
+    '  width: min(95vw, 1400px); position: relative; left: 50%; transform: translateX(-50%);',
+    '}',
+    '.item-experience-grid .checkbox { margin: 0; }',
+    '.item-experience-grid .checkbox label {',
+    '  display: flex; flex-direction: column-reverse; align-items: center; gap: 6px;',
+    '  padding: 0; cursor: pointer;',
+    '}',
+    '.item-experience-grid .checkbox input[type=checkbox] {',
+    '  position: static; margin: 0; width: 20px; height: 20px;',
+    '}',
+    '.item-experience-grid .checkbox img {',
+    '  display: block; width: 100%; aspect-ratio: 1; object-fit: contain;',
+    '  border: 3px solid transparent; border-radius: 6px;',
+    '}',
+    '.item-experience-grid .checkbox label:has(input:checked) img { border-color: #337ab7; }',
+    // "None of these" (always the last option): its own full-width row,
+    // spaced off the pictures, checkbox beside the text rather than under.
+    '.item-experience-grid .checkbox:last-child { grid-column: 1 / -1; margin-top: 16px; }',
+    '.item-experience-grid .checkbox:last-child label {',
+    '  flex-direction: row-reverse; justify-content: flex-end; gap: 8px; font-size: 1.1em;',
+    '}',
+    // Break between the checklist and whatever follows it.
+    '.item-experience-grid { margin-bottom: 32px; }',
+  ].join('\n');
+  (document.head || document.documentElement).appendChild(style);
+}
+
+// Makes the item-experience checklist's "None of these" (its last option)
+// mutually exclusive with the pictures: checking it clears every picture,
+// and checking a picture clears it.
+//
+// Alpaca keeps its own copy of the field's value, updated from its change
+// handler on each input, and setting .checked from JS fires no event - so
+// each box this clears gets a synthetic `change` too, or the saved answer
+// would still include it. The handler ignores unchecks, so those
+// synthetic events do not cascade.
+function installItemExperienceExclusiveNone() {
+  if (typeof document === 'undefined') return;
+  if (window.__itemExperienceExclusiveNoneInstalled) return;
+  window.__itemExperienceExclusiveNoneInstalled = true;
+
+  document.addEventListener('change', function (event) {
+    const input = event.target;
+    if (!input || input.type !== 'checkbox' || !input.checked) return;
+    const grid = input.closest('.item-experience-grid');
+    if (!grid) return;
+    const options = Array.prototype.slice.call(grid.querySelectorAll('.checkbox input[type=checkbox]'));
+    const none = options[options.length - 1];
+    const toClear = input === none ? options.slice(0, -1) : [none];
+    toClear.forEach(function (other) {
+      if (!other.checked) return;
+      other.checked = false;
+      other.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  });
+}
+
 // Warms the browser cache with the trial stimuli while the parent is
 // still reading the setup instructions.
 //
@@ -1859,6 +1964,8 @@ function firstAttentionGetterUrl(trialFrames) {
 installVideoFillsFrame();
   installPauseWhenHidden();
   installExitFullscreenOnExitSurvey();
+  installItemExperienceGrid();
+  installItemExperienceExclusiveNone();
 
   const childSeed = getChildSeed(child);
   const sessionSeed = makeSessionSeed();
