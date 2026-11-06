@@ -1378,6 +1378,12 @@ const FEEDBACK_SURVEY = {
           title: 'Is there any other feedback that you would like to share about your experience with this study?',
           type: 'string',
         },
+        'item-experience': {
+          title:
+            'Does your child have any of the specific items shown in the pictures (for example, the exact same ' +
+            'toy car or ball) in their everyday life? If so, which ones?',
+          type: 'string',
+        },
       },
     },
     options: {
