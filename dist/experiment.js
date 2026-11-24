@@ -539,15 +539,21 @@ function buildIsiFrame(isiSeconds) {
   };
 }
 
-function buildTrialImageFrame(trial) {
+function buildTrialImageFrame(trial, trialNumber) {
   const sideOfB = oppositeSide(trial.sideOfA);
+  // Which side the NAMED image is on - the key variable for the analysis,
+  // so it goes in the frame id (letters/numbers/dashes only) where it is
+  // readable straight from the exported frame list.
+  const targetSide = trial.targetImage === 'imageA' ? trial.sideOfA : sideOfB;
   // Same left offset for both slots - whichever side each image is on
   // determines which offset it gets, not a separate "left slot"/"right
   // slot" pair of constants.
   const leftOffsetBySide = { left: TRIAL_IMAGE_LEFT_MARGIN_PERCENT, right: TRIAL_IMAGE_RIGHT_LEFT_PERCENT };
 
   return {
-    id: `trial-${trial.pairID}`,
+    // trialNumber is "01"-"60" so ids sort; Lookit's own numeric
+    // prefix counts every frame (ISIs, attention getters), this does not.
+    id: `trial-${trialNumber}-${trial.pairID}-targetside-${targetSide}`,
     // The spoken label, naming one of the two images. The silence that
     // places the noun at LABEL_NOUN_ONSET_SECONDS is baked into the file. The
     // frame's own `durationSeconds` still ends the trial at exactly 6s;
@@ -583,9 +589,9 @@ function buildTrialImageFrame(trial) {
     // the images except their own load, and durationSeconds is therefore
     // the exact on-screen time. See the RECORDING note at the top.
     doRecording: false,
-    // pairID/sideOfA are carried in the frame id and image ids so they're
+    // pairID and target side are carried in the frame id so they're
     // recoverable from exported session data without a side channel. The
-    // pairID now ends in "-target-<token>", so which image was named is
+    // pairID ends in "-target-<token>", so which image was named is
     // recoverable the same way - as is the label URL, which EFP records
     // as `audioPlayed`.
   };
@@ -604,10 +610,12 @@ function buildTrialGroup(trial, index) {
     frameList.push(buildIsiFrame(trial.isiSeconds));
   }
 
-  frameList.push(buildTrialImageFrame(trial));
+  // 1-60, zero-padded - shared by the group id and the trial frame id.
+  const trialNumber = String(index + 1).padStart(2, '0');
+  frameList.push(buildTrialImageFrame(trial, trialNumber));
 
   return {
-    id: `trial-group-${index}-${trial.pairID}`,
+    id: `trial-group-${trialNumber}-${trial.pairID}`,
     frame: {
       kind: 'group',
       frameList,
